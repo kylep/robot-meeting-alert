@@ -9,3 +9,9 @@
    passwords, `.env` files, or credentials. Stage files individually,
    never `git add -A`.
 3. Push after every commit (`git push origin main`).
+
+## Layout
+
+Each teaching project lives in its own folder (`project-1/`, `project-2/`, …)
+with its own Makefile, firmware, Mac app, tests and docs. Run `make` targets
+from inside the project folder. Shared docs (kit inventory) live in `docs/`.

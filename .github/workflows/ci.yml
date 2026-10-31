@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    working-directory: project-1
+
 jobs:
   host:
     runs-on: macos-latest
@@ -36,4 +40,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: rma_firmware
-          path: build/firmware/rma_firmware.uf2
+          path: project-1/build/firmware/rma_firmware.uf2

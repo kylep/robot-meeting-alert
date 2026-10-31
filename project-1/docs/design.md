@@ -83,7 +83,7 @@ tests/
   test_host.cpp
   test_link.cpp            openpty()-backed fake device
 docs/assembly.md
-docs/designs/phase-1.md    (this file)
+docs/design.md             (this file; was docs/designs/phase-1.md)
 README.md                  build/flash/run, what worked for toolchain
 .github/workflows/ci.yml
 .gitignore                 build/

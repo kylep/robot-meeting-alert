@@ -64,7 +64,7 @@ From the kit:
 | 1 | Red LED, 1 Green LED, 1 Blue LED | the **longer leg is +** (anode) |
 | 1 | Active buzzer | **sticker on top** ("REMOVE SEAL AFTER WASHING") and a **sealed black bottom**. The passive buzzer has no sticker and you can see a circuit board underneath; don't use that one. |
 | 1 | NPN transistor **S8050** | black, three legs, **"8050"** printed on the flat face. Don't use the 8550. |
-| 12 | Jumper wires | any colours. Red for +5 V and black for ground makes checking easier |
+| 12 | Jumper wires | any colours work. This guide and the video use **red** for 5 V, **black** for ground and **yellow** for signals |
 
 Use the kit's resistor colour-code card if the bands are hard to read. Keep
 the buzzer's sticker on for now; peel it later if you want it louder.
@@ -72,8 +72,8 @@ the buzzer's sticker on for now; peel it later if you want it louder.
 ## 2. Safety
 
 - **Keep the USB cable unplugged** until step 8.
-- **VBUS is 5 V straight from your Mac.** Its wire (W1) and the buzzer's
-  wire (W12) are the only things that go in the **far red (+) rail**. Nothing
+- **VBUS is 5 V straight from your Mac.** Its wire (Wire 1) and the buzzer's
+  wire (Wire 12) are the only things that go in the **far red (+) rail**. Nothing
   connected to VBUS may touch a blue rail or a GND pin.
 - Nothing goes into the Pico's 3V3 pins in this build.
 
@@ -109,15 +109,15 @@ If c1 isn't GP0, the Pico is rotated. Lift it out evenly and fix it now.
 
 | Wire | From | To |
 |------|------|----|
-| **W1** | j1 (VBUS) | **far red (+) rail**, the outer one |
-| **W2** | j13 (GND) | **far blue (−) rail**, the inner one |
-| **W3** | a18 (GND) | **near blue (−) rail**, the outer one |
+| **Wire 1** (red) | j1 (VBUS) | **far red (+) rail**, the outer one |
+| **Wire 2** (black) | j13 (GND) | **far blue (−) rail**, the inner one |
+| **Wire 3** (black) | a18 (GND) | **near blue (−) rail**, the outer one |
 
-**Check:** W1 and W2 must go into **different** far rails: W1 in red, W2 in
+**Check:** Wire 1 and Wire 2 must go into **different** far rails: Wire 1 in red, Wire 2 in
 blue. If both are in the same rail, the USB 5 V is shorted to ground.
 
-**Leave the holes next to W1 empty.** j2 is VSYS (pin 39), which is tied to
-VBUS inside the Pico, so ground must never touch it. That's why W2 uses the
+**Leave the holes next to Wire 1 empty.** j2 is VSYS (pin 39), which is tied to
+VBUS inside the Pico, so ground must never touch it. That's why Wire 2 uses the
 GND pin at h13 instead of the closer one at h3.
 
 ## 5. The three LEDs (near half)
@@ -127,9 +127,9 @@ then a wire to ground. Put each LED's **long leg** in the first hole listed.
 
 | LED | Pico pin | Wire to resistor | 220 Ω resistor | LED long (+) / short (−) | Ground wire |
 |-----|----------|------------------|----------------|--------------------------|-------------|
-| Red | GP10 (c14) | **W4** a14 → a24 | **R1** b24 → b28 | e28 / e29 | **W5** a29 → near blue (−) |
-| Green | GP11 (c15) | **W6** b15 → a31 | **R2** b31 → b35 | e35 / e36 | **W7** a36 → near blue (−) |
-| Blue | GP12 (c16) | **W8** a16 → a38 | **R3** b38 → b42 | e42 / e43 | **W9** a43 → near blue (−) |
+| Red | GP10 (c14) | **Wire 4** (yellow) a14 → a24 | **R1** b24 → b28 | e28 / e29 | **Wire 5** (black) a29 → near blue (−) |
+| Green | GP11 (c15) | **Wire 6** (yellow) b15 → a31 | **R2** b31 → b35 | e35 / e36 | **Wire 7** (black) a36 → near blue (−) |
+| Blue | GP12 (c16) | **Wire 8** (yellow) a16 → a38 | **R3** b38 → b42 | e42 / e43 | **Wire 9** (black) a43 → near blue (−) |
 
 Resistors work either way round. LEDs only work one way: long leg toward the
 resistor.
@@ -139,17 +139,18 @@ resistor.
 The Pico can't power the buzzer directly. The S8050 transistor acts as a
 switch, letting GP15 turn the 5 V supply to the buzzer on and off.
 
-1. **W10**: b20 (GP15) → g50. This wire crosses the centre channel.
+1. **Wire 10** (yellow): b20 (GP15) → g50. This wire crosses the centre channel.
 2. **R4** (1 kΩ): i50 → i55.
 3. **Q1** (S8050): put its legs in **j54, j55, j56** with the **flat printed
    face toward you** (toward the centre channel). Reading the flat face, the
    legs from left to right are **E, B, C**:
    E (emitter) = j54, B (base) = j55, C (collector) = j56.
-4. **W11**: h54 → **far blue (−) rail**.
+4. **Wire 11** (black): h54 → **far blue (−) rail**.
 5. **Buzzer**: **− leg in f56**, **+ leg in f59**. The **+** is printed on
-   top and is the longer leg. The buzzer body overhangs the centre channel;
+   top and is the longer leg. **Direction matters:** backwards, it only
+   clicks instead of beeping. The buzzer body overhangs the centre channel;
    that's fine because those holes are unused.
-6. **W12**: j59 → **far red (+) rail**.
+6. **Wire 12** (red): j59 → **far red (+) rail**.
 
 ## 7. Hole map and checklist
 
@@ -177,8 +178,8 @@ near -  -----------------3----------5------7------9-----------------   blue line
         1   5   10   15   20   25   30   35   40   45   50   55   60
 ```
 
-Legend: `o` Pico pin, `#` under the Pico, `1`–`9` wires W1–W9 (both ends),
-`X` W10, `Y` W11, `W` W12, `R` resistor leg, `L`/`l` LED long/short leg,
+Legend: `o` Pico pin, `#` under the Pico, `1`–`9` Wires 1–9 (both ends),
+`X` Wire 10, `Y` Wire 11, `W` Wire 12, `R` resistor leg, `L`/`l` LED long/short leg,
 `E B C` transistor legs, `^`/`v` buzzer +/− legs.
 
 **Circuit summary (what must be connected to what):**
@@ -194,8 +195,8 @@ Legend: `o` Pico pin, `#` under the Pico, `1`–`9` wires W1–W9 (both ends),
 **Before plugging in, check:**
 
 - [ ] Every wire, resistor and leg is in the hole the tables say.
-- [ ] The far red (+) rail holds **only** W1 and W12.
-- [ ] W1 (red rail) and W2 (blue rail) are in different rails.
+- [ ] The far red (+) rail holds **only** Wire 1 and Wire 12.
+- [ ] Wire 1 (red rail) and Wire 2 (blue rail) are in different rails.
 - [ ] j2 and j3 are empty (VSYS and GND sit right next to VBUS).
 - [ ] LED long legs are at e28, e35 and e42.
 - [ ] The transistor's flat face points toward you and is marked 8050.
@@ -207,7 +208,7 @@ Legend: `o` Pico pin, `#` under the Pico, `1`–`9` wires W1–W9 (both ends),
    USB port).
 2. While holding it, plug the USB cable into the Pico and your Mac.
 3. Release BOOTSEL. A drive called **RP2350** appears in Finder.
-4. In the project folder, run `make flash` (or drag
+4. In the `project-1` folder, run `make flash` (or drag
    `build/firmware/rma_firmware.uf2` onto the RP2350 drive).
 
 The drive disappears and the Pico restarts with the new firmware. **Nothing
@@ -219,7 +220,7 @@ closed.
 ## 9. Smoke test from the terminal
 
 Quit the app first, because only one program can use the port at a time.
-Then run:
+Then, in the `project-1` folder, run:
 
 ```sh
 build/mac/rmactl hello         # → RMA 1 0.1.0
@@ -254,11 +255,12 @@ Safety behaviour to try:
 
 | Symptom | Likely cause |
 |---------|--------------|
-| An LED never lights | LED in backwards (long leg must be in row e next to the resistor); wire in the wrong column; its ground wire (W5/W7/W9) or W3 missing or in the red rail; rail split and not bridged |
+| An LED never lights | LED in backwards (long leg must be in row e next to the resistor); wire in the wrong column; its ground wire (Wire 5/Wire 7/Wire 9) or Wire 3 missing or in the red rail; rail split and not bridged |
 | An LED is always on | its wire goes to a power pin instead of GP10/11/12 |
-| Buzzer silent | passive buzzer used (no sticker); 8550 instead of 8050; transistor turned around; W1, W11 or W12 missing; buzzer + and − swapped |
+| Buzzer only clicks (no beep) | buzzer in backwards: the leg under the **+** must be in f59 (we hit this one) |
+| Buzzer silent | passive buzzer used (no sticker); 8550 instead of 8050; transistor turned around; Wire 1, Wire 11 or Wire 12 missing; buzzer + and − swapped |
 | Buzzer always on | transistor's E and C swapped; collector column touching ground |
 | Buzzer sounds while the RP2350 drive is showing | the board was reset into BOOTSEL mid-beep and the pin latched (a known RP2350 quirk). Unplug and replug. |
 | App says "Looking for Pico…" | firmware not loaded yet (step 8); charge-only cable; Pico still in BOOTSEL mode |
 | App says "Port busy" / `rmactl` exits 3 | another program has the port. Quit it, or find it with `lsof /dev/cu.usbmodem*` |
-| Nothing works and the Pico gets warm | **unplug now**: VBUS is shorted to ground. Check W1, W2 and that j2 is empty (section 4). |
+| Nothing works and the Pico gets warm | **unplug now**: VBUS is shorted to ground. Check Wire 1, Wire 2 and that j2 is empty (section 4). |
