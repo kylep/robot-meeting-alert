@@ -9,6 +9,13 @@ Freenove FNK0064E starter kit.
 - **Mac app:** C++ with Dear ImGui v1.93.0 + SDL3 3.4.18 (`mac/`)
 - **Shared protocol:** a plain-text line protocol over USB serial (`shared/rma/`)
 
+## Videos
+
+| Build it (4.5 min) | How it works (6 min, for kids) |
+|---|---|
+| [![Phase 1 assembly video](https://img.youtube.com/vi/4g2nbYdkmRA/hqdefault.jpg)](https://youtu.be/4g2nbYdkmRA) | [![Phase 1 how-it-works video](https://img.youtube.com/vi/0m0IxbFlooo/hqdefault.jpg)](https://youtu.be/0m0IxbFlooo) |
+| Step-by-step wiring, one part at a time, then flashing and testing. | Electricity as a loop, the breadboard's hidden clips, LEDs, resistors, the transistor, every wire's job, and a quiz. |
+
 Docs:
 - [Assembly guide](docs/assembly.md): wire up the breadboard
 - [Design](docs/design.md): protocol, safety rules, review log

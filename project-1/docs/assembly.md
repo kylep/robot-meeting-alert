@@ -5,6 +5,10 @@ Raspberry Pi Pico 2 W driving a red, a green and a blue LED, plus an active
 buzzer. When you finish, the **Robot Meeting Alert** Mac app switches each
 light on and off and sounds the buzzer while you hold its button.
 
+Prefer to watch? The [assembly video](https://youtu.be/4g2nbYdkmRA) walks through the same steps
+one part at a time, and the [how-it-works video](https://youtu.be/0m0IxbFlooo) explains why each part
+is there (made for kids).
+
 It takes about 30 minutes. There's no soldering, and everything stays
 unplugged until step 8.
 
