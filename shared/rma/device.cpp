@@ -14,7 +14,8 @@ void copy_reply(char* out, const char* s) {
   out[Device::kMaxReply - 1] = '\0';
 }
 
-// Splits line in place on single spaces; returns token count (max 4).
+// Splits line in place on runs of spaces. Returns the token count, or 5 if
+// there are more than 4 tokens (only the first 4 are stored).
 int tokenize(char* line, char* tok[4]) {
   int n = 0;
   char* p = line;

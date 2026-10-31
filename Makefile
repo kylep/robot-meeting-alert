@@ -23,7 +23,7 @@ run: mac
 
 firmware:
 	cmake -S firmware -B build/firmware -G Ninja \
-		-DPICO_SDK_FETCH_FROM_GIT=ON -DPICO_SDK_FETCH_FROM_GIT_TAG=$(PICO_SDK_TAG) \
+		-DPICO_SDK_FETCH_FROM_GIT=ON -DPICO_SDK_FETCH_FROM_GIT_TAG:STRING=$(PICO_SDK_TAG) \
 		$(if $(PICO_TOOLCHAIN_PATH),-DPICO_TOOLCHAIN_PATH=$(PICO_TOOLCHAIN_PATH))
 	cmake --build build/firmware
 
