@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: brew install ninja
+      - name: Tests
+        run: make test
+      - name: Build app
+        run: make mac
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3 gcc-arm-none-eabi \
+            libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+      - name: Build firmware
+        run: make firmware PICO_TOOLCHAIN_PATH=
+      - name: Size
+        run: arm-none-eabi-size build/firmware/rma_firmware.elf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rma_firmware
+          path: build/firmware/rma_firmware.uf2

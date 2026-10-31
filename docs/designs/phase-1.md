@@ -13,7 +13,7 @@ skill ready) but is built after `docs/assembly.md` exists, since it narrates it.
 | Kit docs (local) | `/Users/kp/gh/reports/Freenove_Basic_Starter_Kit_for_Raspberry_Pi_Pico-main/` — `C/C_Tutorial.pdf` byte-identical to GitHub copy (sha1 `daf3d1b0…`); has a Pico 2W section (p.13) | shasum |
 | Board | Raspberry Pi Pico 2 W, RP2350A, SDK board id `pico2_w` (`pico2_w.h` sets no `PICO_DEFAULT_LED_PIN`; onboard LED is on CYW43 — unused) | pico-sdk 2.3.1 |
 | Board USB connector | micro-USB B. Kit cable is USB-A → micro-B | kit parts image |
-| Physical pins used | GP10=pin14, GP11=pin15, GP12=pin16, GP15=pin20, GND=pins 18 & 38, VBUS=pin40 | tutorial p.72 schematic |
+| Physical pins used | GP10=pin14, GP11=pin15, GP12=pin16, GP15=pin20, GND=pins 18 & 28, VBUS=pin40 | tutorial p.72 schematic |
 | Pico SDK | 2.3.1 | GitHub releases |
 | picotool | 2.3.1 (brew formula `picotool`, bottled). If `find_package(picotool)` fails the SDK fetches+builds it with `PICOTOOL_NO_LIBUSB=1` (tools/Findpicotool.cmake) — no libusb needed for the build | brew; SDK source |
 | Arm toolchain | brew cask `gcc-arm-embedded` 15.3.rel2 is a `.pkg` → needs sudo → agent cannot use it unattended. Use the Arm GNU Toolchain darwin-arm64 `arm-none-eabi` tarball instead (§7). Formula `arm-none-eabi-gcc` lacks newlib — don't use | brew info |
@@ -311,7 +311,7 @@ use the **mirror rule**: swap letters a↔j, b↔i, c↔h, d↔g, e↔f and
 "near rails"↔"far rails" in every instruction; physical positions are
 identical. If (b) fails, stop and send Kyle's breadboard photo to the agent
 for a re-layout. If (c) rails are split, add bridges: far red(+) (col 1 ↔
-col 59), far blue(−) (3 ↔ 54), near blue(−) (18 ↔ 29/36/43) — one jumper per
+col 59), far blue(−) (13 ↔ 54), near blue(−) (18 ↔ 29/36/43) — one jumper per
 split rail across the gap.
 
 ### 9.2 Content (in order)
@@ -335,10 +335,11 @@ split rail across the gap.
    **h** (far) — 2 free holes per column on each side. (Freenove's drawing
    uses b/g; we use c/h deliberately.) Mapping: pins 1–20 → row c, pin n at
    column n; pins 21–40 → row h, pin p at column 41−p. Gate G1: printed
-   label next to h1 reads VBUS, c1 reads GP0/0, c20 reads GP15/15, c18 GND.
+   label next to h1 reads VBUS, c1 reads GP0/0, c20 reads GP15/15, c18 GND, h13 GND.
 4. Power wiring:
    - W1 j1 → far red(+) rail  (VBUS 5V)
-   - W2 j3 → far blue(−) rail (GND, pin 38)
+   - W2 j13 → far blue(−) rail (GND, pin 28 — NOT pin 38 at h3: j2 next to it
+     is VSYS, diode-tied to VBUS, so a one-hole slip would short USB 5V to GND)
    - W3 a18 → near blue(−) rail (GND, pin 18)
 5. LEDs (near half):
    | LED | GPIO (pin, hole) | jumper | 220Ω | LED long(+) / short(−) | ground jumper |
@@ -353,14 +354,13 @@ split rail across the gap.
      you (toward the channel). Sanity: reading the flat face, legs are E,B,C
      left→right and E sits in the lower-numbered column.
    - W11 h54 → far blue(−)
-   - Buzzer `−` f56, `+` f59 (body overhangs the channel and rows d/e of
-     columns 55–60 — those holes are unused)
+   - Buzzer `−` f56, `+` f59 (body overhangs the centre channel)
    - W12 j59 → far red(+)
    Clearance (reviewed): buzzer body (Ø12 mm centred on row f between cols
    56–59) clears Q1 in row j, R4 in row i, W11 at h54, W12 at j59.
 7. Netlist (authoritative; table above is one realisation):
    - 5V: VBUS(40) – far red(+) – buzzer `+`
-   - GND: pin38 – far blue(−); pin18 – near blue(−); Q1 E; 3× LED cathodes
+   - GND: pin28 – far blue(−); pin18 – near blue(−); Q1 E; 3× LED cathodes
    - GP10(14) – R1 – red anode; GP11(15) – R2 – green anode; GP12(16) – R3 – blue anode
    - GP15(20) – R4 – Q1 B; Q1 C – buzzer `−`
    Agent writing the guide MUST cross-check table ↔ netlist ↔ ASCII diagram
@@ -432,3 +432,9 @@ Rejected:
 - sonnet: "SDK defaults reset-via-baud to 0" — SDK 2.3.1 `usb_reset_config.h` defaults it to 1 (vendor interface also 1).
 
 Deferred: base pull-down for BOOTSEL/E9 (sonnet, low) — see §11 risk.
+
+Guide cross-check (opus, fresh context, 2026-10-31): wiring, map, S8050
+orientation and rails all PASS. Fixed: far-side ground moved from pin 38 (h3)
+to pin 28 (h13) because j2 (VSYS) sat between W1 and W2; G0 column-count and
+rail-split checks added to the guide; LED-bar location wording; cross-check
+statement added.
