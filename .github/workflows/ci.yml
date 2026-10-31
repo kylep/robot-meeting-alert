@@ -8,13 +8,16 @@ on:
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: project-1
-
 jobs:
   host:
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [project-1, project-2]
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
     steps:
       - uses: actions/checkout@v4
       - name: Install tools
@@ -26,6 +29,13 @@ jobs:
 
   firmware:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [project-1, project-2]
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
@@ -36,8 +46,8 @@ jobs:
       - name: Build firmware
         run: make firmware PICO_TOOLCHAIN_PATH=
       - name: Size
-        run: arm-none-eabi-size build/firmware/rma_firmware.elf
+        run: make size PICO_TOOLCHAIN_PATH=
       - uses: actions/upload-artifact@v4
         with:
-          name: rma_firmware
-          path: project-1/build/firmware/rma_firmware.uf2
+          name: ${{ matrix.project }}-firmware
+          path: ${{ matrix.project }}/build/firmware/*.uf2
