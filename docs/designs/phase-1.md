@@ -1,9 +1,9 @@
 # Phase 1 design: USB-controlled R/G/B LEDs + hold-to-buzz
 
-Status: REVIEWED (7-model adversarial review 2026-10-31, findings merged — see §12).
+Status: REVIEWED + open questions resolved (7-model adversarial review 2026-10-31, findings merged — see §12).
 Audience: implementing agents. Scope: Kyle's items 1 (macOS C++ app) and 2
-(assembly guide). Item 3 (tutorial video) is deferred — do NOT invoke the
-`tutorial-video` skill until Kyle explicitly says so.
+(assembly guide). Item 3 (tutorial video) is unblocked (Kyle, 2026-10-31:
+skill ready) but is built after `docs/assembly.md` exists, since it narrates it.
 
 ## 0. Verified facts (2026-10-31)
 
@@ -26,8 +26,9 @@ Audience: implementing agents. Scope: Kyle's items 1 (macOS C++ app) and 2
 | LED circuit | GPIO → 220Ω → LED anode (long leg); cathode → GND | tutorial p.35 |
 | Buzzer circuit | active buzzer `+` → 5V (VBUS); `−` → S8050 collector; emitter → GND; GPIO → 1kΩ → base | tutorial p.71–72 |
 | S8050 pinout | flat labelled face toward viewer, legs left→right E, B, C | tutorial p.71 |
-| Kit breadboard lettering | Freenove's breadboard diagram (tutorial p.72) prints row **A nearest the viewer** (A–E near half, F–J far half) with column 1 at the LEFT. Physical board not yet seen | tutorial p.72 |
-| Kit breadboard size | Amazon photo aspect ≈3:1 → almost certainly 830-point (63 columns). Not confirmed physically | inference |
+| Kit breadboard lettering | CONFIRMED from Kyle's photo (IMG_2238, 2026-10-31): with column 1 at the LEFT, row **a is nearest the viewer** (a–e near half, f–j far half) — same as tutorial p.72 | photo |
+| Kit breadboard size | CONFIRMED 830-point, 63 columns; rail colour lines continuous end to end. Near rail pair: red(+) inner (next to row a), blue(−) outer. Far rail pair: blue(−) inner (next to row j), red(+) outer | photo |
+| Kit ships parts pre-inserted | LED bar graph pressed into the breadboard at ≈ cols 46–58, rows f–g (protective). Must be removed before assembly (`Start Here.pdf`: lift one end slightly, then the other) | photo; Start Here.pdf |
 | Local machine | macOS 27.2, Apple clang 17, brew; cmake/ninja/arm gcc/picotool NOT installed | `command -v` |
 
 Transport is **USB CDC serial**. "USB-C controlled" in Kyle's brief is read as
@@ -314,9 +315,11 @@ col 59), far blue(−) (3 ↔ 54), near blue(−) (18 ↔ 29/36/43) — one jump
 split rail across the gap.
 
 ### 9.2 Content (in order)
-0. Before you start: cable check — kit cable is USB-A → micro-B; if the Mac
-   has only USB-C, get a USB-C → micro-B data cable (not charge-only) or a
-   USB-C → USB-A adapter. Then Gate G0.
+0. Before you start: cable check — kit cable is USB-A → micro-B; Kyle has a
+   suitable cable for his Mac (confirmed). Remove the pre-inserted LED bar
+   graph (≈ cols 46–58) and anything else pressed into the board (lift one
+   end slightly, then the other). Then Gate G0 (expected to pass: lettering
+   and size confirmed from Kyle's photo; still have Kyle eyeball it).
 1. Parts pick list (from FNK0064E): Pico 2 W, USB cable, breadboard,
    3× 220Ω, 1× 1kΩ, 1 red + 1 green + 1 blue LED, 1 active buzzer, 1 S8050
    (marked 8050, NOT 8550), 12 jumper wires. Identification: resistor bands
@@ -397,9 +400,9 @@ Include an ASCII hole-map diagram generated from the same table.
 
 ## 11. Open questions / risks
 
-- Q1. "USB-C controlled" — board is micro-USB. Assumed Kyle means USB cable control; confirm cable/adapter situation.
-- Q2. Kyle's item 2 truncated ("…turn each light on/off, and to"); assumed "fire the buzzer while the button is held".
-- Q3. Physical breadboard lettering/size unconfirmed → Gate G0 + mirror rule; a photo from Kyle before assembly removes the risk.
+- Q1. RESOLVED: USB cable control; Kyle has a suitable cable.
+- Q2. RESOLVED: item 2 ends "fire the buzzer while the button is held" (Kyle confirmed).
+- Q3. RESOLVED: breadboard lettering (a nearest) and 63 columns confirmed by photo; G0 + mirror rule kept as a cheap check.
 - Risk: RP2350-E9 — if the board is reset into BOOTSEL while GP15 is high, the pad may latch ~2 V and keep the buzzer on until power-cycle. Low probability (only flashing mid-buzz); documented in troubleshooting. No hardware mitigation in phase 1; revisit (external pull-down on GP15) if it is ever observed.
 - Risk: macOS DTR-on-close behaviour unverified on this hardware; R4 does not depend on it (lease + buzz freshness cover quit/crash).
 
