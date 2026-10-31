@@ -91,8 +91,9 @@ That leaves two free holes per column on each side (a/b near, i/j far).
 Freenove's tutorial drawings use rows b and g. **This build uses c and h** on
 purpose.
 
-**Check before going on.** The tiny labels printed next to the pins should
-read:
+**Check before going on.** Pin names aren't printed on the top of the Pico.
+Use the kit's **pinout card** (or the labels on the Pico's underside) to
+confirm these holes hold these pins:
 
 | Hole | Pico label |
 |------|-----------|
