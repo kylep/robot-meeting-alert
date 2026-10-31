@@ -72,14 +72,14 @@ yellow = signal, black = ground):
 | A7 | Wire 15 (yellow) | a16 → a33 | GP12 (c16) → blue resistor |
 | A8 | Wire 16 (orange) | i5 → i31 | 3V3 (h5) → RGB common leg. **Not i4** (3V3_EN) |
 | A9 | Potentiometer | legs f40 (1), f42 (wiper), f44 (2); body and knob over the centre channel, toward you | |
-| A10 | Wire 17 (orange) | j31 → j40 | 3.3 V on to knob leg 1 (chained from the RGB common column) |
+| A10 | Wire 17 (orange) | j31 → j44 | 3.3 V on to the knob's right leg (chained from the RGB common column) |
 | A11 | Wire 18 (yellow) | j10 → j42 | knob wiper → GP26 (h10). **Not j11** (RUN) |
-| A12 | Wire 19 (black) | j44 → top blue rail | knob leg 2 → ground |
+| A12 | Wire 19 (black) | j40 → top blue rail | knob's left leg → ground (matches the kit drawing, p.90: turning right = more) |
 | A13 | 1N4001 diode | i56 → i59, **band (stripe) on the i59 end** | flyback protection: the passive buzzer is a coil; the diode soaks up the voltage spike each time the transistor switches off. Body may sit slightly raised (7.6 mm span) |
 
 Netlist (authoritative):
 - 5 V: VBUS(40) – Wire 1 – far + rail – Wire 12 – buzzer +
-- 3.3 V: 3V3(36) – Wire 16 – RGB common – Wire 17 – knob leg 1
+- 3.3 V: 3V3(36) – Wire 16 – RGB common – Wire 17 – knob right leg (f44)
 - GND: pin 28 – Wire 2 – far − rail – {Wire 11 – S8050 E, Wire 19 – knob leg 2}; pin 18 – Wire 3 – near − rail (now unused; harmless)
 - GP10(14) – Wire 13 – 220 Ω – RGB R; GP11(15) – Wire 14 – 220 Ω – RGB G; GP12(16) – Wire 15 – 220 Ω – RGB B
 - GP26(31) – Wire 18 – knob wiper
@@ -92,8 +92,8 @@ Hole map (generated, collision-checked; legend: `D E F` Wires 13–15,
 ```
         1   5   10   15   20   25   30   35   40   45   50   55   60
 far +   1+++++++++++++++++++++++++++++++++++++++++++++++++++++++++W+   red line (outer): 5 V
-far -   ------------2------------------------------J---------Y------   blue line (inner): ground
-    j   1........I..2.................H........H.I.J.........EBC..W.
+far -   ------------2--------------------------J-------------Y------   blue line (inner): ground
+    j   1........I..2.................H........J.I.H.........EBC..W.
     i   ....G.........................G..................R....Rd..k.
     h   oooooooooooooooooooo.................................Y......
     g   ####################.........RAGB................X..........
@@ -127,9 +127,9 @@ Electrical checks:
   bend them slightly apart so the bare leads don't touch.
 
 Physical risks / gates:
-- G-POT: the kit knob's legs are expected 2 holes apart (5 mm). If they fit
-  adjacent holes, use f40/f41/f42 and move Wire 18 to j41, Wire 19 to j42.
-- Knob direction: if turning right lowers the value, swap Wires 17 and 19.
+- G-POT: the kit knob's legs are 2 holes apart (5 mm; confirmed in the kit drawing). If they fit
+  adjacent holes, use f40/f41/f42: Wire 17 → j42, Wire 18 → j41, Wire 19 stays j40.
+- Knob direction: if turning right lowers the value, swap where Wires 17 and 19 land.
   The firmware does not care.
 - The knob body overhangs the channel over Wire 10 (b20 → g50), which is
   already in place from phase 1. Fine: the jumper sits under the knob.
@@ -286,5 +286,7 @@ duty cap, STOP before flash, troubleshooting); flyback diode (A13); `rmactl
 play` cut off by DTR drop; colour balance + unambiguous gamma/brightness;
 knob dead zones; PLAY n / SOUND semantics and ordering; GP13 rationale;
 integer buzzer clkdiv; perceptual volume curve; knob-over-Wire-10 note.
-Pending at implementation: assembly hole-map legend must use distinct symbols
-(the design map reuses R/G/B letters).
+Assembly-guide cross-check (opus, fresh context): all nets, map, RGB order,
+diode orientation and pins PASS. Fixed: knob ends mirrored to match the kit
+(right = more); two troubleshooting rows; i55/i56 adjacency check; `make mac
+flash`. The assembly guide uses distinct map symbols.
