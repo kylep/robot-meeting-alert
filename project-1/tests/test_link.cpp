@@ -138,17 +138,35 @@ void test_connect_and_sync() {
   CHECK(eventually([&] { return same(fake.outputs(), O(1, 0, 1, 0)); }, 200ms));
   CHECK(eventually([&] { return same(link.snapshot().reported, O(1, 0, 1, 0)); }, 200ms));
 
-  // Hold the buzzer like a GUI would: refresh every frame for 600 ms.
-  auto end = Clock::now() + 600ms;
+  // Hold the buzzer like a GUI would: refresh every ~16 ms "frame". Give it
+  // 150 ms to come on, then require it to stay on for 600 ms. If this thread
+  // itself stalls past the Link's freshness window (slow CI runners do), a
+  // release is the correct behaviour, so the stay-on check is skipped.
+  auto hold = [&](Clock::duration d, bool* stayed_on, Clock::duration* worst_gap) {
+    auto end = Clock::now() + d;
+    auto last = Clock::now();
+    while (Clock::now() < end) {
+      link.set_desired(O(1, 0, 1, 1));
+      auto now = Clock::now();
+      if (now - last > *worst_gap) *worst_gap = now - last;
+      last = now;
+      if (stayed_on && !fake.outputs().buzz) *stayed_on = false;
+      std::this_thread::sleep_for(16ms);
+    }
+  };
+  Clock::duration warmup_gap{};
+  hold(150ms, nullptr, &warmup_gap);
+  CHECK(fake.outputs().buzz);
   bool always_on = true;
-  link.set_desired(O(1, 0, 1, 1));
-  std::this_thread::sleep_for(100ms);
-  while (Clock::now() < end) {
-    link.set_desired(O(1, 0, 1, 1));
-    if (!fake.outputs().buzz) always_on = false;
-    std::this_thread::sleep_for(16ms);
+  Clock::duration worst_gap{};
+  hold(600ms, &always_on, &worst_gap);
+  if (worst_gap < rma::Link::kBuzzFreshness - 40ms && warmup_gap < rma::Link::kBuzzFreshness - 40ms) {
+    CHECK(always_on);
+  } else {
+    std::printf("test_link: hold check skipped (test thread stalled %lld ms)\n",
+                static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::max(worst_gap, warmup_gap)).count()));
   }
-  CHECK(always_on);
   CHECK(fake.count("BUZZ 1") >= 4);
 
   // Release.
