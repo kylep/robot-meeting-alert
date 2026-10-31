@@ -45,69 +45,37 @@ standard-opening-from-memory); Kyle should confirm by ear at acceptance.
   project 1.
 - P7. Everything except final look/listen testable without hardware.
 - P8. Assembly guide + video part 1 (assembly), one step at a time, safety
-  scene, using the phase-1 board as the starting point.
+  scene, starting from a bare breadboard with only the Pico.
 
 Non-goals: Wi-Fi, calendar integration, persistence of settings across power
 cycles, custom user melodies.
 
-## 3. Hardware: changes from the phase 1 board
+## 3. Hardware layout (rebuilt from the bare board, 2026-10-31)
 
-**Remove** (keep the parts in the box): red, green and blue LEDs; the three
-220 Ω resistors at b24–b28, b31–b35, b38–b42; Wires 4–9. **Swap** the active
-buzzer (sticker) for the **passive** buzzer (no sticker, green board visible
-underneath): same holes, + leg in f59. **Keep** the Pico, Wires 1, 2, 3, 10,
-11, 12, the 1 kΩ resistor (i50–i55) and the S8050 (j54–j56).
+Kyle's revision: the video starts from a breadboard with only the Pico and
+builds everything in place (no removal steps). Layout goals, not narrated:
+the RGB LED sits toward the right end with no wire crossing it; resistors
+stand across the centre channel; jumpers are long, so wires run along the
+board edges (near-half wires sag toward the viewer, far-half wires toward
+the far rails) and no wire passes over a part. The circuit and pins are
+unchanged from §1, so the firmware is unchanged.
 
-**Add** (wire numbers continue from phase 1; colours: orange = 3.3 V,
-yellow = signal, black = ground):
+The step-by-step holes live in [assembly.md](assembly.md) §2–5. They are
+generated from the video script
+(`claude-video/projects/phase2/video.json`), which is the source of truth
+because Kyle builds from the video. Placement order: power, knob, light,
+buzzer. The RGB LED is turned around (legs B, G, common, R left to right,
+longest leg third) so Wires 7–9 nest without crossing. Near rails unused.
 
-| Step | Part | Holes | Why |
-|---|---|---|---|
-| A1 | RGB LED | R g30, common (longest) g31, G g32, B g33 | far half, next to the channel |
-| A2 | 220 Ω (red) | f30 → e30, standing across the channel | R leg's column → near half |
-| A3 | 220 Ω (green) | f32 → e32 | |
-| A4 | 220 Ω (blue) | f33 → e33 | |
-| A5 | Wire 13 (yellow) | a14 → a30 | GP10 (c14) → red resistor |
-| A6 | Wire 14 (yellow) | b15 → b32 | GP11 (c15) → green resistor |
-| A7 | Wire 15 (yellow) | a16 → a33 | GP12 (c16) → blue resistor |
-| A8 | Wire 16 (orange) | i5 → i31 | 3V3 (h5) → RGB common leg. **Not i4** (3V3_EN) |
-| A9 | Potentiometer | legs f40 (1), f42 (wiper), f44 (2); body and knob over the centre channel, toward you | |
-| A10 | Wire 17 (orange) | j31 → j44 | 3.3 V on to the knob's right leg (chained from the RGB common column) |
-| A11 | Wire 18 (yellow) | j10 → j42 | knob wiper → GP26 (h10). **Not j11** (RUN) |
-| A12 | Wire 19 (black) | j40 → top blue rail | knob's left leg → ground (matches the kit drawing, p.90: turning right = more) |
-| A13 | 1N4001 diode | i56 → i59, **band (stripe) on the i59 end** | flyback protection: the passive buzzer is a coil; the diode soaks up the voltage spike each time the transistor switches off. Body may sit slightly raised (7.6 mm span) |
-
-Netlist (authoritative):
-- 5 V: VBUS(40) – Wire 1 – far + rail – Wire 12 – buzzer +
-- 3.3 V: 3V3(36) – Wire 16 – RGB common – Wire 17 – knob right leg (f44)
-- GND: pin 28 – Wire 2 – far − rail – {Wire 11 – S8050 E, Wire 19 – knob leg 2}; pin 18 – Wire 3 – near − rail (now unused; harmless)
-- GP10(14) – Wire 13 – 220 Ω – RGB R; GP11(15) – Wire 14 – 220 Ω – RGB G; GP12(16) – Wire 15 – 220 Ω – RGB B
-- GP26(31) – Wire 18 – knob wiper
-- GP15(20) – Wire 10 – 1 kΩ – S8050 B; S8050 C – buzzer − – diode anode (i56); diode cathode/band (i59) – buzzer + (5 V)
-
-Hole map (generated, collision-checked; legend: `D E F` Wires 13–15,
-`G H I J` Wires 16–19, `r` 220 Ω legs, `R A G B` RGB legs, `1 w 2` knob legs,
-`d`/`k` diode anode/band):
-
-```
-        1   5   10   15   20   25   30   35   40   45   50   55   60
-far +   1+++++++++++++++++++++++++++++++++++++++++++++++++++++++++W+   red line (outer): 5 V
-far -   ------------2--------------------------J-------------Y------   blue line (inner): ground
-    j   1........I..2.................H........J.I.H.........EBC..W.
-    i   ....G.........................G..................R....Rd..k.
-    h   oooooooooooooooooooo.................................Y......
-    g   ####################.........RAGB................X..........
-    f   ####################.........r.rr......1.w.2...........v..^.
-        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   centre channel
-    e   ####################.........r.rr...........................
-    d   ####################........................................
-    c   oooooooooooooooooooo........................................
-    b   ..............E....X...........E............................
-    a   .............D.F.3...........D..F...........................
-near +  ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++   red line (inner): unused
-near -  -----------------3------------------------------------------   blue line (outer): ground (Wire 3)
-        1   5   10   15   20   25   30   35   40   45   50   55   60
-```
+Netlist (authoritative; verified by a script that unions the breadboard
+strips through every wire and checks each part's legs):
+- 5 V: VBUS(40, h1) – Wire 1 – far + rail – Wire 11 – buzzer + (f60) – diode band (i60)
+- 3.3 V: 3V3(36, h5) – Wire 3 – knob right leg (f30) – Wire 6 – RGB common (g49)
+- GND: pin 28 (h13) – Wire 2 – far − rail – {Wire 5 – knob left leg (f26), Wire 10 – S8050 E (j55)}
+- GP10(14) – Wire 7 – 220 Ω (e50/f50) – RGB R (g50); GP11(15) – Wire 8 – 220 Ω (e48/f48) – RGB G (g48); GP12(16) – Wire 9 – 220 Ω (e47/f47) – RGB B (g47)
+- GP26(31, h10) – Wire 4 – knob wiper (f28)
+- GP15(20, c20) – Wire 12 – 1 kΩ (e56/f56) – S8050 B (j56); S8050 C (j57) – buzzer − (f57) – diode plain end (i57)
+- Untouched: 3V3_EN (h4), RUN (h11), VSYS (h2).
 
 Electrical checks:
 - RGB current per colour ≈ (3.3 − Vf)/220: red ≈ 6 mA, green/blue ≈ 1–2 mA,
@@ -123,17 +91,17 @@ Electrical checks:
 - At boot, before the firmware runs, GPIO pads default to pull-down, so the
   RGB colours may glow faintly until `main()` drives them high (off). Harmless.
 - The resistors standing across the channel (f→e) are the Freenove pattern
-  (tutorial p.64). Adjacent ones at columns 32 and 33 sit close together:
+  (tutorial p.64). Adjacent ones at columns 47 and 48 sit close together:
   bend them slightly apart so the bare leads don't touch.
 
 Physical risks / gates:
 - G-POT: the kit knob's legs are 2 holes apart (5 mm; confirmed in the kit drawing). If they fit
-  adjacent holes, use f40/f41/f42: Wire 17 → j42, Wire 18 → j41, Wire 19 stays j40.
-- Knob direction: if turning right lowers the value, swap where Wires 17 and 19 land.
+  adjacent holes, use f26/f27/f28: Wire 4 → j27, Wire 3 → i28, Wire 6 from j28, Wire 5 stays j26.
+- Knob direction: if turning right lowers the value, swap the outer legs' connections (3.3 V and ground).
   The firmware does not care.
-- The knob body overhangs the channel over Wire 10 (b20 → g50), which is
-  already in place from phase 1. Fine: the jumper sits under the knob.
-- G-RGB: the longest leg must be in g31. If the legs have been trimmed, the
+- The knob body overhangs the channel toward the viewer; Wires 7–9 pass in
+  front of it along row a. Fine: long jumpers arc over.
+- G-RGB: the longest leg must be in g49, the single short (R) leg in g50. If the legs have been trimmed, the
   flat edge on the rim is next to the R leg (Freenove drawing).
 
 ## 4. Protocol v2 (`project-2/shared/rma2`)
