@@ -283,6 +283,9 @@ int main(int, char**) {
       StatusDot(IM_COL32(130, 130, 130, 255));
       ImGui::TextUnformatted("Looking for the robot (Wi-Fi or USB)...");
     }
+    if (connected && !snap.last_error.empty()) {
+      ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", snap.last_error.c_str());
+    }
     ImU32 swatch = ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], 1.0f));
     Toggle("Light on", &want.light, swatch);
 

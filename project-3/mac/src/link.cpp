@@ -167,6 +167,7 @@ bool Link::try_connect() {
     }
     over_tcp_ = tcp;
     last_net_ = last_push_ = Clock::time_point{};
+    rejected_.clear();
     pushed_gen_ = 0;
     if (command("STATE") != Reply::Ok) {  // learn the device's settings; reconcile pushes ours
       port_.close();
@@ -290,14 +291,24 @@ void Link::connected_loop() {
     }
     // Settings first, so a preview queued after a selection hears the new one.
     const State& r = reported_;
-    if (d.light != r.light && command(d.light ? "LIGHT 1" : "LIGHT 0") != Reply::Ok) return;
-    if ((d.r != r.r || d.g != r.g || d.b != r.b)) {
-      std::snprintf(buf, sizeof buf, "RGB %d %d %d", d.r, d.g, d.b);
-      if (command(buf) != Reply::Ok) return;
-    }
-    if (d.sound != r.sound && command("SOUND " + std::to_string(d.sound)) != Reply::Ok) return;
-    if (d.meter != r.meter && command("METER " + std::to_string(d.meter)) != Reply::Ok) return;
-    if (d.mode != r.mode && command("MODE " + std::to_string(d.mode)) != Reply::Ok) return;
+    // A setting the robot refuses (e.g. a sound older firmware doesn't know)
+    // is reported and not retried until it changes; it never drops the link.
+    auto setting = [&](bool differs, const std::string& cmd) {
+      if (!differs || cmd == rejected_) return true;
+      Reply rep = command(cmd);
+      if (rep == Reply::Err) {
+        rejected_ = cmd;
+        std::lock_guard<std::mutex> lock(mu_);
+        snap_.last_error = "The robot refused \"" + cmd + "\". Update its firmware (make flash over USB).";
+      }
+      return rep != Reply::Dead;
+    };
+    std::snprintf(buf, sizeof buf, "RGB %d %d %d", d.r, d.g, d.b);
+    if (!setting(d.light != r.light, d.light ? "LIGHT 1" : "LIGHT 0")) return;
+    if (!setting(d.r != r.r || d.g != r.g || d.b != r.b, buf)) return;
+    if (!setting(d.sound != r.sound, "SOUND " + std::to_string(d.sound))) return;
+    if (!setting(d.meter != r.meter, "METER " + std::to_string(d.meter))) return;
+    if (!setting(d.mode != r.mode, "MODE " + std::to_string(d.mode))) return;
     for (const std::string& e : events) {
       if (command(e) == Reply::Dead) return;
     }

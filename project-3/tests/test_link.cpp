@@ -327,6 +327,24 @@ void test_schedule_error_keeps_connection() {
   CHECK(fake.count("HELLO") == 1);  // never reconnected
 }
 
+void test_refused_setting_keeps_connection() {
+  FakeUsb fake;
+  rma3::Link link([&] { return std::vector<std::string>{fake.path()}; });
+  link.start();
+  CHECK(eventually([&] { return connected(link); }, 2s));
+  rma3::Desired d;
+  d.sound = 42;  // a sound this robot doesn't know
+  link.set_desired(d);
+  CHECK(eventually([&] { return !link.snapshot().last_error.empty(); }, 1s));
+  std::this_thread::sleep_for(300ms);
+  CHECK(connected(link));
+  CHECK(fake.count("HELLO") == 1);       // never reconnected
+  CHECK(fake.count("SOUND 42") == 1);    // not retried
+  d.sound = 3;
+  link.set_desired(d);
+  CHECK(eventually([&] { return fake.settings().sound == 3; }, 1s));
+}
+
 void test_wifi_setup_over_usb() {
   FakeUsb fake;
   rma3::Link link([&] { return std::vector<std::string>{fake.path()}; });
@@ -346,6 +364,7 @@ int main() {
   test_silent_device_drops_connection();
   test_wifi_schedule_push();
   test_schedule_error_keeps_connection();
+  test_refused_setting_keeps_connection();
   test_wifi_setup_over_usb();
   if (g_failures == 0) std::printf("test_link: ok\n");
   return g_failures;

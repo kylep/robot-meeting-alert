@@ -109,6 +109,7 @@ class Link {
   // Worker only.
   State reported_;
   bool over_tcp_ = false;
+  std::string rejected_;  // last setting the robot refused
   Clock::time_point last_cmd_{}, last_net_{}, last_push_{};
   uint64_t pushed_gen_ = 0;
 };
