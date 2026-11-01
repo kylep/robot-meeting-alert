@@ -25,8 +25,8 @@
 
 namespace {
 
-constexpr int kWidth = 460;
-constexpr int kHeight = 820;
+constexpr int kWidth = 880;
+constexpr int kHeight = 600;
 constexpr double kLookahead = 12 * 3600;
 const char* kSounds[] = {"Off", "Westminster chime", "Twinkle twinkle", "Ode to joy", "Beep"};
 const char* kMeterModes[] = {"None", "Brightness", "Volume", "Both"};
@@ -254,7 +254,7 @@ int main(int, char**) {
     ImGui::SetNextWindowSize(vp->WorkSize);
     ImGui::Begin("main", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_AlwaysVerticalScrollbar);
+                     ImGuiWindowFlags_NoBringToFrontOnFocus);
 
     // ---- Status
     rma3::LinkSnapshot snap = link.snapshot();
@@ -278,6 +278,12 @@ int main(int, char**) {
     }
     ImU32 swatch = ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], 1.0f));
     Toggle("Light on", &want.light, swatch);
+
+    // Two tabs: the robot (two columns, no scrolling) and settings.
+    bool tabs = ImGui::BeginTabBar("tabs");
+    if (tabs && ImGui::BeginTabItem("Robot")) {
+    ImGui::BeginTable("cols", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV);
+    ImGui::TableNextColumn();
 
     // ---- Mode
     Section("MODE");
@@ -306,6 +312,7 @@ int main(int, char**) {
           if (calendars.empty()) calendars = cal.calendars();
           std::string account;
           bool changed = false;
+          ImGui::BeginChild("cals", ImVec2(-1, 170 * scale), ImGuiChildFlags_None);
           for (const rma::CalendarInfo& c : calendars) {
             if (c.account != account) {
               account = c.account;
@@ -323,6 +330,7 @@ int main(int, char**) {
             }
             ImGui::PopID();
           }
+          ImGui::EndChild();
           if (changed) next_fetch = 0;  // re-read at once
           if (chosen.empty()) {
             ImGui::TextDisabled("Tick the calendar(s) to watch.");
@@ -385,6 +393,8 @@ int main(int, char**) {
     want.g = static_cast<uint8_t>(color[1] * 255.0f + 0.5f);
     want.b = static_cast<uint8_t>(color[2] * 255.0f + 0.5f);
 
+    ImGui::TableNextColumn();
+
     // ---- Sound
     Section(mode == 1 ? "ALERT SOUND" : "SOUND");
     ImGui::SetNextItemWidth(200.0f * scale);
@@ -414,9 +424,13 @@ int main(int, char**) {
     std::snprintf(overlay, sizeof overlay, connected ? "%d%%" : "--", snap.reported.knob);
     ImGui::ProgressBar(connected ? snap.reported.knob / 100.0f : 0.0f, ImVec2(-1, 0), overlay);
 
-    // ---- Wi-Fi setup
-    ImGui::Spacing();
-    if (ImGui::CollapsingHeader("Wi-Fi setup")) {
+    ImGui::EndTable();
+    ImGui::EndTabItem();
+    }
+
+    // ---- Settings tab: Wi-Fi setup and the robot's address
+    if (tabs && ImGui::BeginTabItem("Settings")) {
+      Section("WI-FI SETUP");
       bool usb = connected && !snap.over_wifi;
       ImGui::TextWrapped(usb ? "Type your Wi-Fi details; they are saved on the robot (not in this app)."
                              : "Plug the robot into this Mac with USB to set up Wi-Fi.");
@@ -433,15 +447,17 @@ int main(int, char**) {
       if (ImGui::Button("Forget Wi-Fi")) link.wifi_clear();
       ImGui::EndDisabled();
       if (!snap.wifi_result.empty()) ImGui::TextWrapped("%s", snap.wifi_result.c_str());
-      ImGui::Spacing();
-      ImGui::TextDisabled("Robot address (only if it isn't found by itself):");
+      Section("ROBOT ADDRESS");
+      ImGui::TextDisabled("Only needed if the app doesn't find the robot by itself:");
       ImGui::SetNextItemWidth(160.0f * scale);
       if (ImGui::InputTextWithHint("##host", "e.g. 192.168.1.50", host_buf, sizeof host_buf)) {
         finder.set_manual(host_buf);
       }
       std::string found = finder.found();
       if (!found.empty()) ImGui::TextDisabled("Found rma.local at %s", found.c_str());
+      ImGui::EndTabItem();
     }
+    if (tabs) ImGui::EndTabBar();
 
     link.set_desired(want);
     ImGui::End();
