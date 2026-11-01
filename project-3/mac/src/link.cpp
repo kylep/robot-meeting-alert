@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace rma3 {
 
@@ -82,6 +83,12 @@ void Link::wifi_clear() {
   snap_.wifi_result = "Sending...";
 }
 
+void Link::set_key(const uint8_t key[kKeyLen]) {
+  std::lock_guard<std::mutex> lock(mu_);
+  std::memcpy(key_, key, kKeyLen);
+  has_key_ = true;
+}
+
 LinkSnapshot Link::snapshot() const {
   std::lock_guard<std::mutex> lock(mu_);
   return snap_;
@@ -150,6 +157,13 @@ bool Link::try_connect() {
       port_.close();
       continue;
     }
+    if (tcp && !prove_key()) {  // a robot on Wi-Fi only obeys its paired Mac
+      port_.close();
+      std::lock_guard<std::mutex> lock(mu_);
+      snap_.not_paired = true;
+      err = "The robot on Wi-Fi isn't paired with this Mac. Plug it in with USB once to pair.";
+      continue;
+    }
     {
       std::lock_guard<std::mutex> lock(mu_);
       std::string wifi_result = snap_.wifi_result;
@@ -169,6 +183,7 @@ bool Link::try_connect() {
     last_net_ = last_push_ = Clock::time_point{};
     rejected_.clear();
     pushed_gen_ = 0;
+    if (!tcp) give_key();
     if (command("STATE") != Reply::Ok) {  // learn the device's settings; reconcile pushes ours
       port_.close();
       return false;
@@ -190,6 +205,39 @@ Link::Reply Link::send(const std::string& cmd, std::string* line) {
     if (!line->empty()) break;
   }
   return line->rfind("ERR", 0) == 0 ? Reply::Err : Reply::Ok;
+}
+
+bool Link::prove_key() {
+  uint8_t key[kKeyLen];
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (!has_key_) return false;
+    std::memcpy(key, key_, kKeyLen);
+  }
+  std::string line;
+  uint8_t nonce[kNonceLen], proof[kProofLen];
+  if (send("AUTH", &line) != Reply::Ok || line.rfind("OK NONCE ", 0) != 0 ||
+      !from_hex(line.c_str() + 9, nonce, kNonceLen)) {
+    return false;
+  }
+  auth_proof(key, nonce, proof);
+  char hex[2 * kProofLen + 1];
+  to_hex(proof, kProofLen, hex);
+  return send(std::string("AUTH ") + hex, &line) == Reply::Ok && line == "OK AUTH";
+}
+
+// Older firmware doesn't know KEY (ERR BADCMD): harmless, it just stays unpaired.
+void Link::give_key() {
+  uint8_t key[kKeyLen];
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (!has_key_) return;
+    std::memcpy(key, key_, kKeyLen);
+  }
+  char hex[2 * kKeyLen + 1];
+  to_hex(key, kKeyLen, hex);
+  std::string line;
+  send(std::string("KEY ") + hex, &line);
 }
 
 Link::Reply Link::command(const std::string& cmd) {

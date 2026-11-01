@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "check.hpp"
+#include "rma3/auth.hpp"
 #include "rma3/device.hpp"
 #include "rma3/host.hpp"
 #include "rma3/schedule.hpp"
@@ -27,6 +28,22 @@ std::string send(Device& d, const std::string& s, uint32_t now = 0, Source src =
 }
 
 bool ok(const std::string& r) { return r.rfind("OK ", 0) == 0; }
+
+const uint8_t kTestKey[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+
+// A trusted network session, as the Mac does it: challenge, then proof.
+void pair_net(Device& d) {
+  d.set_key(kTestKey);
+  uint8_t nonce[16] = {9, 9, 9};
+  d.begin_net_session(nonce);
+  std::string ch = send(d, "AUTH\n", 0, Source::Net);
+  uint8_t n[16], proof[16];
+  char hex[33];
+  CHECK(ch.rfind("OK NONCE ", 0) == 0 && rma3::from_hex(ch.c_str() + 9, n, 16));
+  rma3::auth_proof(kTestKey, n, proof);
+  rma3::to_hex(proof, 16, hex);
+  CHECK_STR(send(d, std::string("AUTH ") + hex + "\n", 0, Source::Net), "OK AUTH");
+}
 
 constexpr uint32_t kS = 1000;  // ms per second
 
@@ -74,6 +91,7 @@ void test_new_commands() {
 
 void test_wifi_commands_usb_only() {
   Device d;
+  pair_net(d);  // even a trusted network client can't touch Wi-Fi settings
   for (const char* s : {"WIFI home\n", "PASS secretpass\n", "WIFIGO\n", "WIFICLR\n"}) {
     CHECK_STR(send(d, s, 0, Source::Net), "ERR USBONLY");
   }
@@ -106,6 +124,7 @@ void test_wifi_commands_usb_only() {
 // A network client sends half a line; a USB newline must not complete it.
 void test_sources_never_mix() {
   Device d;
+  pair_net(d);
   CHECK_STR(send(d, "WIFIC", 0, Source::Net), "");
   CHECK_STR(send(d, "\nHELLO\n", 0, Source::Usb), "RMA 3 0.3.0");
   rma3::WifiCreds c;
@@ -244,24 +263,115 @@ void test_schedule_capacity_of_remembered_ids() {
 }
 
 void test_wifi_record() {
-  rma3::WifiCreds c;
-  std::strcpy(c.ssid, "Test Net");
-  std::strcpy(c.pass, "abcdefgh12");
+  rma3::StoredRecord in;
+  in.has_creds = true;
+  std::strcpy(in.creds.ssid, "Test Net");
+  std::strcpy(in.creds.pass, "abcdefgh12");
+  in.has_key = true;
+  std::memcpy(in.key, kTestKey, 16);
   uint8_t rec[rma3::kWifiRecordSize];
-  rma3::encode_wifi_record(c, rec);
-  rma3::WifiCreds back;
-  CHECK(rma3::decode_wifi_record(rec, &back));
-  CHECK_STR(back.ssid, "Test Net");
-  CHECK_STR(back.pass, "abcdefgh12");
+  rma3::encode_record(in, rec);
+  rma3::StoredRecord back = rma3::decode_record(rec);
+  CHECK(back.has_creds && back.has_key);
+  CHECK_STR(back.creds.ssid, "Test Net");
+  CHECK_STR(back.creds.pass, "abcdefgh12");
+  CHECK(std::memcmp(back.key, kTestKey, 16) == 0);
   rec[50] ^= 1;  // corrupted
-  CHECK(!rma3::decode_wifi_record(rec, &back));
+  back = rma3::decode_record(rec);
+  CHECK(!back.has_creds && !back.has_key);
   uint8_t erased[rma3::kWifiRecordSize];
   std::memset(erased, 0xFF, sizeof erased);
-  CHECK(!rma3::decode_wifi_record(erased, &back));
-  rma3::encode_wifi_record(c, rec);
-  rec[0] = 'X';
-  CHECK(!rma3::decode_wifi_record(rec, &back));
+  back = rma3::decode_record(erased);
+  CHECK(!back.has_creds && !back.has_key);
+  // Key only (Wi-Fi forgotten, still paired).
+  rma3::StoredRecord key_only;
+  key_only.has_key = true;
+  std::memcpy(key_only.key, kTestKey, 16);
+  rma3::encode_record(key_only, rec);
+  back = rma3::decode_record(rec);
+  CHECK(!back.has_creds && back.has_key);
+  // A v1 record (project 3's first firmware: Wi-Fi only, CRC at 104) still reads.
+  uint8_t v1[rma3::kWifiRecordSize];
+  std::memset(v1, 0xFF, sizeof v1);
+  std::memcpy(v1, "RMA3", 4);
+  v1[4] = 1; v1[5] = 4; v1[6] = 8; v1[7] = 0;
+  std::memset(v1 + 8, 0, 96);
+  std::memcpy(v1 + 8, "Home", 4);
+  std::memcpy(v1 + 40, "password", 8);
+  uint32_t crc = rma3::crc32(v1, 104);
+  for (int i = 0; i < 4; ++i) v1[104 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  back = rma3::decode_record(v1);
+  CHECK(back.has_creds && !back.has_key);
+  CHECK_STR(back.creds.ssid, "Home");
+  CHECK_STR(back.creds.pass, "password");
   CHECK(rma3::crc32(reinterpret_cast<const uint8_t*>("123456789"), 9) == 0xCBF43926u);
+}
+
+void test_hashes() {
+  uint8_t out[32];
+  char hex[65];
+  rma3::sha256(reinterpret_cast<const uint8_t*>("abc"), 3, out);
+  rma3::to_hex(out, 32, hex);
+  CHECK_STR(hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  std::string longer(1000, 'a');  // several blocks
+  rma3::sha256(reinterpret_cast<const uint8_t*>(longer.data()), longer.size(), out);
+  rma3::to_hex(out, 32, hex);
+  CHECK_STR(hex, "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3");
+  // RFC 4231 test case 2.
+  const char* msg = "what do ya want for nothing?";
+  rma3::hmac_sha256(reinterpret_cast<const uint8_t*>("Jefe"), 4, reinterpret_cast<const uint8_t*>(msg),
+                    std::strlen(msg), out);
+  rma3::to_hex(out, 32, hex);
+  CHECK_STR(hex, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+  uint8_t b[2];
+  CHECK(!rma3::from_hex("zz00", b, 2) && !rma3::from_hex("abc", b, 2) && rma3::from_hex("aB01", b, 2));
+  CHECK(b[0] == 0xab && b[1] == 0x01);
+}
+
+void test_pairing() {
+  Device d;
+  uint8_t nonce[16] = {7};
+  d.begin_net_session(nonce);
+  // Never paired: the network gets nothing but HELLO.
+  CHECK_STR(send(d, "HELLO\n", 0, Source::Net), "RMA 3 0.3.0");
+  CHECK_STR(send(d, "STATE\n", 0, Source::Net), "ERR NOKEY");
+  CHECK_STR(send(d, "AUTH\n", 0, Source::Net), "ERR NOKEY");
+  CHECK_STR(send(d, "LIGHT 0\n", 0, Source::Net), "ERR NOKEY");
+  CHECK(d.settings().light);
+  // Pair over USB (only).
+  CHECK_STR(send(d, "KEY 0102030405060708090a0b0c0d0e0f10\n", 0, Source::Net), "ERR NOKEY");
+  CHECK_STR(send(d, "KEY 1234\n"), "ERR BADARG");
+  CHECK(ok(send(d, "KEY 0102030405060708090a0b0c0d0e0f10\n")));
+  uint8_t saved[16];
+  CHECK(d.take_new_key(saved) && std::memcmp(saved, kTestKey, 16) == 0);
+  CHECK(!d.take_new_key(saved));
+  CHECK(ok(send(d, "KEY 0102030405060708090A0B0C0D0E0F10\n")));  // same key: no flash write
+  CHECK(!d.take_new_key(saved));
+  CHECK_STR(send(d, "STATE\n", 0, Source::Net), "ERR AUTH");
+  // Wrong proof: refused, and no second try on this connection.
+  CHECK(send(d, "AUTH\n", 0, Source::Net).rfind("OK NONCE 07", 0) == 0);
+  CHECK_STR(send(d, "AUTH 00000000000000000000000000000000\n", 0, Source::Net), "ERR AUTH");
+  uint8_t proof[16];
+  char hex[33];
+  rma3::auth_proof(kTestKey, nonce, proof);
+  rma3::to_hex(proof, 16, hex);
+  CHECK_STR(send(d, std::string("AUTH ") + hex + "\n", 0, Source::Net), "ERR AUTH");
+  CHECK_STR(send(d, "AUTH\n", 0, Source::Net), "ERR AUTH");
+  // New connection, new challenge: the old proof is useless (no replay).
+  uint8_t nonce2[16] = {8};
+  d.begin_net_session(nonce2);
+  CHECK_STR(send(d, std::string("AUTH ") + hex + "\n", 0, Source::Net), "ERR AUTH");
+  d.begin_net_session(nonce2);
+  rma3::auth_proof(kTestKey, nonce2, proof);
+  rma3::to_hex(proof, 16, hex);
+  CHECK_STR(send(d, std::string("AUTH ") + hex + "\n", 0, Source::Net), "OK AUTH");
+  CHECK(ok(send(d, "LIGHT 0\n", 0, Source::Net)));
+  CHECK_STR(send(d, "KEY 0102030405060708090a0b0c0d0e0f10\n", 0, Source::Net), "ERR USBONLY");
+  // Re-pairing (a different Mac plugs in) locks out the old one.
+  CHECK(ok(send(d, "KEY ffffffffffffffffffffffffffffffff\n")));
+  CHECK_STR(send(d, "STATE\n", 0, Source::Net), "ERR AUTH");
+  // USB never needs a proof.
+  CHECK(ok(send(d, "STATE\n")));
 }
 
 void test_wifi_supervisor() {
@@ -353,6 +463,8 @@ int main() {
   test_alert_sound_rules();
   test_schedule_capacity_of_remembered_ids();
   test_wifi_record();
+  test_hashes();
+  test_pairing();
   test_wifi_supervisor();
   test_pick_meetings();
   if (g_failures == 0) std::printf("test_v3: ok\n");

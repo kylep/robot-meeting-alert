@@ -13,6 +13,7 @@ set(ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 add_executable(rma3_firmware
   src/main.cpp
+  ${ROOT}/shared/rma3/auth.cpp
   ${ROOT}/shared/rma3/device.cpp
   ${ROOT}/shared/rma3/knob.cpp
   ${ROOT}/shared/rma3/melodies.cpp
@@ -29,7 +30,7 @@ target_compile_definitions(rma3_firmware PRIVATE
   CYW43_HOST_NAME="rma"
 )
 target_link_libraries(rma3_firmware pico_stdlib hardware_pwm hardware_adc hardware_watchdog
-  hardware_flash pico_flash pico_cyw43_arch_lwip_poll pico_lwip_mdns)
+  hardware_flash pico_flash pico_cyw43_arch_lwip_poll pico_lwip_mdns pico_rand)
 
 pico_enable_stdio_usb(rma3_firmware 1)
 pico_enable_stdio_uart(rma3_firmware 0)

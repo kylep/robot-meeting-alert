@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 
+#include "rma3/auth.hpp"
 #include "rma3/host.hpp"
 #include "serial_port.hpp"
 
@@ -44,6 +45,7 @@ struct LinkSnapshot {
   int pushed = -1;     // meetings in the last schedule push (-1 = none yet)
   std::string schedule_error;
   std::string wifi_result;  // outcome of the last Wi-Fi setup
+  bool not_paired = false;  // the robot on Wi-Fi didn't accept this Mac
 };
 
 class Link {
@@ -75,6 +77,8 @@ class Link {
   // Save Wi-Fi settings on the robot (works over USB only).
   void wifi_setup(const std::string& ssid, const std::string& pass);
   void wifi_clear();
+  // This Mac's pairing key: given to the robot over USB, proven over Wi-Fi.
+  void set_key(const uint8_t key[rma3::kKeyLen]);
   LinkSnapshot snapshot() const;
   void stop();
 
@@ -87,6 +91,8 @@ class Link {
   Reply command(const std::string& cmd);  // expects a state line
   bool push_schedule();                   // false = connection dead
   bool do_wifi();                         // false = connection dead
+  bool prove_key();                       // Wi-Fi: answer the robot's challenge
+  void give_key();                        // USB: pair the robot with this Mac
   bool wait_or_stop(Clock::duration d);
 
   Candidates candidates_;
@@ -104,6 +110,8 @@ class Link {
   uint64_t cal_gen_ = 0;
   bool wifi_pending_ = false, wifi_clear_ = false;
   std::string wifi_ssid_, wifi_pass_;
+  uint8_t key_[rma3::kKeyLen] = {};
+  bool has_key_ = false;
   LinkSnapshot snap_;
 
   // Worker only.

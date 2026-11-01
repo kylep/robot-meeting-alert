@@ -8,6 +8,7 @@ add_compile_options(-Wall -Wextra -Werror)
 set(ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 add_library(rma3_shared STATIC
+  ${ROOT}/shared/rma3/auth.cpp
   ${ROOT}/shared/rma3/device.cpp
   ${ROOT}/shared/rma3/host.cpp
   ${ROOT}/shared/rma3/knob.cpp

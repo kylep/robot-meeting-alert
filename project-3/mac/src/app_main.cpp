@@ -23,6 +23,7 @@
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
 #include "link.hpp"
+#include "pairing.hpp"
 
 namespace {
 
@@ -195,6 +196,8 @@ int main(int, char**) {
   std::snprintf(host_buf, sizeof host_buf, "%s", prefs.kv["host"].c_str());
   finder.set_manual(host_buf);
   rma3::Link link([&] { return finder.candidates(); });
+  uint8_t pairing_key[16];
+  if (rma::load_or_create_pairing_key(pairing_key)) link.set_key(pairing_key);
   link.start();
 
   // Calendar source (Settings tab). Chosen calendars are remembered per source.
@@ -279,6 +282,9 @@ int main(int, char**) {
     } else if (snap.port_busy) {
       StatusDot(IM_COL32(240, 180, 60, 255));
       ImGui::TextUnformatted("USB port busy - quit rmactl or other serial apps");
+    } else if (snap.not_paired) {
+      StatusDot(IM_COL32(240, 180, 60, 255));
+      ImGui::TextUnformatted("Found the robot, but it isn't paired with this Mac. Plug it in with USB once.");
     } else {
       StatusDot(IM_COL32(130, 130, 130, 255));
       ImGui::TextUnformatted("Looking for the robot (Wi-Fi or USB)...");

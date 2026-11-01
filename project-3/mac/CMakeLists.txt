@@ -33,7 +33,9 @@ target_link_libraries(imgui PUBLIC SDL3::SDL3-static)
 set(ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 add_library(rma_core STATIC
+  ${ROOT}/shared/rma3/auth.cpp
   ${ROOT}/shared/rma3/host.cpp
+  src/pairing.cpp
   src/serial_port.cpp
   src/link.cpp
   src/discovery.cpp)

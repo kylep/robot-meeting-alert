@@ -16,12 +16,21 @@ struct WifiCreds {
 
 bool creds_valid(const WifiCreds& c);
 
+// What the robot keeps in flash: Wi-Fi settings and the pairing key.
+struct StoredRecord {
+  bool has_creds = false;
+  WifiCreds creds;
+  bool has_key = false;
+  uint8_t key[16] = {};
+};
+
 // Flash record: one 256-byte page (the flash programming unit).
-// Layout: "RMA3" magic, version, ssid_len, pass_len, pad, ssid[32], pass[64],
-// CRC32 of everything before it. Erased flash (all 0xFF) reads as "none".
+// v2 layout: "RMA3" magic, version 2, ssid_len, pass_len, flags (bit 0 Wi-Fi,
+// bit 1 key), ssid[32] @8, pass[64] @40, key[16] @104, CRC32 @120 of all
+// before it. v1 (no key, CRC @104) is still read. Erased flash reads as empty.
 constexpr size_t kWifiRecordSize = 256;
-void encode_wifi_record(const WifiCreds& c, uint8_t out[kWifiRecordSize]);
-bool decode_wifi_record(const uint8_t in[kWifiRecordSize], WifiCreds* out);
+void encode_record(const StoredRecord& r, uint8_t out[kWifiRecordSize]);
+StoredRecord decode_record(const uint8_t in[kWifiRecordSize]);
 uint32_t crc32(const uint8_t* data, size_t len);
 
 // What the driver reports, boiled down.

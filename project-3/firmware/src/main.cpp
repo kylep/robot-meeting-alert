@@ -16,6 +16,7 @@
 #include "lwip/tcp.h"
 #include "pico/cyw43_arch.h"
 #include "pico/flash.h"
+#include "pico/rand.h"
 #include "pico/stdlib.h"
 #include "pins.hpp"
 #include "rma3/device.hpp"
@@ -98,13 +99,13 @@ void apply_outputs() {
 // ---------------------------------------------------------------- network
 
 bool g_wifi_ok = false;  // the CYW43 chip started
-rma3::WifiCreds g_creds;
-bool g_have_creds = false;
+rma3::StoredRecord g_record;  // Wi-Fi settings + pairing key, as saved in flash
 rma3::WifiSupervisor g_sup;
 
 // One TCP client at a time. lwIP callbacks run inside cyw43_arch_poll(), in
 // the main loop, so no locking is needed.
 tcp_pcb* g_client = nullptr;
+uint32_t g_client_since = 0, g_client_rx = 0;  // ms: accepted, last bytes in
 uint8_t g_rx[512];
 size_t g_rx_head = 0, g_rx_len = 0;
 
@@ -130,6 +131,7 @@ err_t on_recv(void*, tcp_pcb* pcb, pbuf* p, err_t) {
     return ERR_OK;
   }
   if (p->tot_len > sizeof g_rx - g_rx_len) return ERR_MEM;  // lwIP offers it again later
+  g_client_rx = now_ms();
   for (pbuf* q = p; q; q = q->next) {
     const uint8_t* d = static_cast<const uint8_t*>(q->payload);
     for (u16_t i = 0; i < q->len; ++i) g_rx[(g_rx_head + g_rx_len++) % sizeof g_rx] = d[i];
@@ -146,9 +148,21 @@ void on_err(void*, err_t) {  // lwIP already freed the pcb
 
 err_t on_accept(void*, tcp_pcb* pcb, err_t err) {
   if (err != ERR_OK || !pcb) return ERR_VAL;
-  drop_client();  // the newest connection wins (e.g. the work laptop takes over)
+  // A paired Mac that is actively talking keeps the robot; a newcomer can't
+  // kick it off. Otherwise the newest connection wins (the work laptop can
+  // take over once the personal Mac's app is quit or asleep).
+  uint32_t t = now_ms();
+  if (g_client && g_dev.net_authed() && t - g_client_rx < 5000) {
+    tcp_abort(pcb);
+    return ERR_ABRT;
+  }
+  drop_client();
   g_client = pcb;
+  g_client_since = g_client_rx = t;
   g_rx_head = g_rx_len = 0;
+  rng_128_t nonce;
+  get_rand_128(&nonce);
+  g_dev.begin_net_session(reinterpret_cast<const uint8_t*>(&nonce));
   ip_set_option(pcb, SOF_KEEPALIVE);  // notice a Mac that vanished
   pcb->keep_idle = 10000;
   pcb->keep_intvl = 2000;
@@ -208,8 +222,9 @@ rma3::WifiLink link_status() {
 
 void join() {
   cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
-  bool open = g_creds.pass[0] == '\0';
-  cyw43_arch_wifi_connect_async(g_creds.ssid, open ? nullptr : g_creds.pass,
+  const rma3::WifiCreds& c = g_record.creds;
+  bool open = c.pass[0] == '\0';
+  cyw43_arch_wifi_connect_async(c.ssid, open ? nullptr : c.pass,
                                 open ? CYW43_AUTH_OPEN : CYW43_AUTH_WPA2_MIXED_PSK);
 }
 
@@ -232,6 +247,8 @@ void status_led(uint32_t t) {
 void net_service(uint32_t t) {
   if (!g_wifi_ok) return;
   cyw43_arch_poll();
+  // Five seconds to prove the pairing key, or the connection is closed.
+  if (g_client && !g_dev.net_authed() && t - g_client_since > 5000) drop_client();
   if (g_sup.tick(t, link_status())) join();
   if (g_sup.take_came_up()) mdns_resp_restart(sta_netif());
   static rma3::NetStatus last = rma3::kNetNone;
@@ -252,39 +269,49 @@ const uint8_t* flash_record() {
 }
 
 struct FlashJob {
-  bool save;
   uint8_t page[rma3::kWifiRecordSize];
 };
 
 void flash_job(void* arg) {
   auto* job = static_cast<FlashJob*>(arg);
   flash_range_erase(kFlashOffset, FLASH_SECTOR_SIZE);
-  if (job->save) flash_range_program(kFlashOffset, job->page, sizeof job->page);
+  flash_range_program(kFlashOffset, job->page, sizeof job->page);
 }
 
-// Only ever reached from the USB-only WIFIGO / WIFICLR commands.
-void handle_wifi_action() {
+// Only ever reached from USB-only commands: WIFIGO, WIFICLR and KEY.
+void handle_flash_actions() {
+  rma3::StoredRecord next = g_record;
   rma3::WifiCreds c;
   rma3::WifiAction a = g_dev.take_wifi_action(&c);
-  if (a == rma3::WifiAction::None) return;
+  bool wifi_changed = a != rma3::WifiAction::None;
+  if (a == rma3::WifiAction::Save) {
+    next.creds = c;
+    next.has_creds = true;
+  } else if (a == rma3::WifiAction::Clear) {
+    next.creds = rma3::WifiCreds{};
+    next.has_creds = false;
+  }
+  uint8_t key[16];
+  bool key_changed = g_dev.take_new_key(key);
+  if (key_changed) {
+    std::memcpy(next.key, key, sizeof key);
+    next.has_key = true;
+  }
+  if (!wifi_changed && !key_changed) return;
+
   FlashJob job{};
-  job.save = (a == rma3::WifiAction::Save);
-  if (job.save) rma3::encode_wifi_record(c, job.page);
+  rma3::encode_record(next, job.page);
   buzzer_set(rma3::Tone{});      // the coil must not sit on a held pin
   watchdog_enable(2000, true);   // a sector erase can take up to ~400 ms
   int rc = flash_safe_execute(flash_job, &job, 100);
   watchdog_enable(500, true);
   g_tone = rma3::Tone{};
   if (rc != PICO_OK) return;
-  if (job.save) {
-    g_creds = c;
-    g_have_creds = true;
-  } else {
-    g_creds = rma3::WifiCreds{};
-    g_have_creds = false;
-    if (g_wifi_ok) cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+  g_record = next;
+  if (wifi_changed) {
+    if (!g_record.has_creds && g_wifi_ok) cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    g_sup.set_have_creds(g_record.has_creds, now_ms());
   }
-  g_sup.set_have_creds(g_have_creds, now_ms());
 }
 
 // ---------------------------------------------------------------- loop
@@ -311,6 +338,8 @@ int main() {
   adc_gpio_init(pins::kKnob);
   adc_select_input(pins::kKnobAdcInput);
   stdio_init_all();
+  g_record = rma3::decode_record(flash_record());
+  g_dev.set_key(g_record.has_key ? g_record.key : nullptr);
 
   // Starting the Wi-Fi chip blocks for a while, so it happens before the
   // watchdog is armed, and always (so WIFIGO never starts it inside the loop).
@@ -319,8 +348,7 @@ int main() {
     cyw43_arch_enable_sta_mode();
     server_start();
     mdns_start();
-    g_have_creds = rma3::decode_wifi_record(flash_record(), &g_creds);
-    g_sup.set_have_creds(g_have_creds, now_ms());
+    g_sup.set_have_creds(g_record.has_creds, now_ms());
   }
   watchdog_enable(500, true);  // a hung firmware resets, which releases the buzzer
 
@@ -348,7 +376,7 @@ int main() {
       --g_rx_len;
       if (g_dev.feed(rma3::Source::Net, c, now_ms(), reply)) net_reply(reply);
     }
-    handle_wifi_action();
+    handle_flash_actions();
     sleep_us(500);
   }
 }

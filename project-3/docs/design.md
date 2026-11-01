@@ -150,6 +150,20 @@ Unchanged from v2: `LIGHT`, `RGB`, `SOUND`, `PLAY`, `PLAY n`, `STOP`,
 | `PASS <password>` | **USB only.** Stage password (rest of line, 8–63 bytes, or empty for open networks) |
 | `WIFIGO` | **USB only.** Save staged SSID + password to flash and (re)join |
 | `WIFICLR` | **USB only.** Erase stored Wi-Fi settings |
+| `KEY <32 hex>` | **USB only.** Pair: set the 16-byte key (saved to flash only if it changed) |
+| `AUTH` | Network: reply `OK NONCE <32 hex>`, the connection's random challenge |
+| `AUTH <32 hex>` | Network: proof = first 16 bytes of HMAC-SHA256(key, nonce). `OK AUTH`, else `ERR AUTH`. One try per connection |
+
+**Pairing (added 2026-11-01, Kyle: "can we add a password for the wifi
+control?").** Until a network client proves the key, it gets only `HELLO`
+and `AUTH`; everything else is `ERR AUTH` (or `ERR NOKEY` if the robot was
+never paired). The app sends `KEY` automatically whenever it is connected
+over USB; its key is 16 random bytes in
+`~/Library/Application Support/RobotMeetingAlert/pairing.key` (0600), shared
+with `rmactl`. A new TCP connection can't replace a paired client that sent
+data in the last 5 s; an unproven client is dropped after 5 s. The flash
+record is v2 (adds the key; v1 still read). SHA-256/HMAC live in
+`shared/rma3/auth.cpp`, tested against FIPS and RFC 4231 vectors.
 
 State line adds mode, stage and Wi-Fi: `OK L1 CFF8000 S2 M1 K57 Z1 T1 A3 W2`
 (T mode, A stage 0 none / 1 free / 2 soon / 3 meeting, W Wi-Fi status).
@@ -248,9 +262,10 @@ state line or debug print. `NET` reports only status and IP, not the SSID.
   cannot read or change them (`ERR USBONLY`). Stored in plain text on the
   Pico (no secure storage on this board): documented; `WIFICLR` before
   giving the board away.
-- The TCP port is unauthenticated on the home LAN: anyone on the Wi-Fi could
-  change the light or play a melody. Accepted for a home toy; buzzer safety
-  limits (≤ 50 % duty, watchdog) apply whatever the source. Documented.
+- The TCP port requires pairing (§4): challenge-response with a key set
+  over USB. Traffic is not encrypted (others on the LAN can read it, not
+  forge it). Buzzer safety limits (≤ 50 % duty, watchdog) apply whatever
+  the source.
 - Line length caps, bounded drains, and no heap growth on the device keep a
   misbehaving client from wedging it.
 

@@ -6,8 +6,8 @@ namespace rma3 {
 namespace {
 
 constexpr uint8_t kMagic[4] = {'R', 'M', 'A', '3'};
-constexpr uint8_t kVersion = 1;
-constexpr size_t kSsidOff = 8, kPassOff = 40, kCrcOff = 104;
+constexpr uint8_t kVersion = 2;
+constexpr size_t kSsidOff = 8, kPassOff = 40, kKeyOff = 104, kCrcOff = 120;
 
 }  // namespace
 
@@ -26,34 +26,43 @@ uint32_t crc32(const uint8_t* data, size_t len) {
   return ~crc;
 }
 
-void encode_wifi_record(const WifiCreds& c, uint8_t out[kWifiRecordSize]) {
+void encode_record(const StoredRecord& r, uint8_t out[kWifiRecordSize]) {
   std::memset(out, 0xFF, kWifiRecordSize);
   std::memcpy(out, kMagic, 4);
-  size_t s = strnlen(c.ssid, 32), p = strnlen(c.pass, 63);
+  bool creds = r.has_creds && creds_valid(r.creds);
+  size_t s = creds ? strnlen(r.creds.ssid, 32) : 0, p = creds ? strnlen(r.creds.pass, 63) : 0;
   out[4] = kVersion;
   out[5] = static_cast<uint8_t>(s);
   out[6] = static_cast<uint8_t>(p);
-  out[7] = 0;
-  std::memset(out + kSsidOff, 0, 32 + 64);
-  std::memcpy(out + kSsidOff, c.ssid, s);
-  std::memcpy(out + kPassOff, c.pass, p);
+  out[7] = static_cast<uint8_t>((creds ? 1 : 0) | (r.has_key ? 2 : 0));
+  std::memset(out + kSsidOff, 0, kCrcOff - kSsidOff);
+  std::memcpy(out + kSsidOff, r.creds.ssid, s);
+  std::memcpy(out + kPassOff, r.creds.pass, p);
+  if (r.has_key) std::memcpy(out + kKeyOff, r.key, 16);
   uint32_t crc = crc32(out, kCrcOff);
   for (int i = 0; i < 4; ++i) out[kCrcOff + i] = static_cast<uint8_t>(crc >> (8 * i));
 }
 
-bool decode_wifi_record(const uint8_t in[kWifiRecordSize], WifiCreds* out) {
-  if (std::memcmp(in, kMagic, 4) != 0 || in[4] != kVersion) return false;
+StoredRecord decode_record(const uint8_t in[kWifiRecordSize]) {
+  StoredRecord r;
+  if (std::memcmp(in, kMagic, 4) != 0 || (in[4] != 1 && in[4] != kVersion)) return r;
+  size_t crc_off = in[4] == 1 ? kKeyOff : kCrcOff;  // v1 had no key
   uint32_t crc = 0;
-  for (int i = 0; i < 4; ++i) crc |= static_cast<uint32_t>(in[kCrcOff + i]) << (8 * i);
-  if (crc != crc32(in, kCrcOff)) return false;
+  for (int i = 0; i < 4; ++i) crc |= static_cast<uint32_t>(in[crc_off + i]) << (8 * i);
+  if (crc != crc32(in, crc_off)) return r;
+  uint8_t flags = in[4] == 1 ? 1 : in[7];
   size_t s = in[5], p = in[6];
-  if (s < 1 || s > 32 || p > 63) return false;
-  WifiCreds c;
-  std::memcpy(c.ssid, in + kSsidOff, s);
-  std::memcpy(c.pass, in + kPassOff, p);
-  if (!creds_valid(c)) return false;
-  *out = c;
-  return true;
+  if ((flags & 1) && s >= 1 && s <= 32 && p <= 63) {
+    std::memcpy(r.creds.ssid, in + kSsidOff, s);
+    std::memcpy(r.creds.pass, in + kPassOff, p);
+    r.has_creds = creds_valid(r.creds);
+    if (!r.has_creds) r.creds = WifiCreds{};
+  }
+  if (flags & 2) {
+    r.has_key = true;
+    std::memcpy(r.key, in + kKeyOff, 16);
+  }
+  return r;
 }
 
 void WifiSupervisor::set_have_creds(bool have, uint32_t now_ms) {

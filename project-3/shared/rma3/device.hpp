@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "auth.hpp"
 #include "knob.hpp"
 #include "schedule.hpp"
 #include "sequencer.hpp"
@@ -59,6 +60,15 @@ class Device {
   // A pending WIFIGO / WIFICLR; creds valid for Save.
   WifiAction take_wifi_action(WifiCreds* creds);
 
+  // Pairing. The firmware loads the saved key at boot (nullptr = none).
+  void set_key(const uint8_t* key);
+  bool has_key() const { return has_key_; }
+  // A new network client: fresh random challenge, not yet trusted.
+  void begin_net_session(const uint8_t nonce[kNonceLen]);
+  bool net_authed() const { return net_authed_; }
+  // A KEY sent over USB that differs from the current one, to save to flash.
+  bool take_new_key(uint8_t out[kKeyLen]);
+
   // Outputs.
   uint16_t led_level(int ch) const;  // 0..65535, 65535 = fully on (ch 0=R,1=G,2=B)
   Tone tone() const;
@@ -93,6 +103,13 @@ class Device {
   char ip_[16] = "-";
   WifiCreds staged_;
   WifiAction wifi_action_ = WifiAction::None;
+
+  uint8_t key_[kKeyLen] = {};
+  bool has_key_ = false;
+  bool key_changed_ = false;
+  uint8_t nonce_[kNonceLen] = {};
+  bool nonce_valid_ = false;  // one AUTH attempt per connection
+  bool net_authed_ = false;
 };
 
 // Exposed for tests: perceptual curves.

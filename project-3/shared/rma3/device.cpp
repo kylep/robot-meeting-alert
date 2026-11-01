@@ -154,12 +154,52 @@ bool Device::handle_wifi(Source src, char* line, char* reply) {
 }
 
 void Device::handle_line(Source src, char* line, uint32_t now_ms, char* reply) {
+  // Over Wi-Fi, nothing but HELLO and AUTH until the Mac proves it's paired.
+  bool net_locked = src == Source::Net && !net_authed_;
+  if (net_locked && !starts_with_word(line, "HELLO") && !starts_with_word(line, "AUTH")) {
+    copy_reply(reply, has_key_ ? "ERR AUTH" : "ERR NOKEY");
+    return;
+  }
   if (handle_wifi(src, line, reply)) return;
 
   char* tok[kMaxTok] = {};
   int n = tokenize(line, tok);
   const char* verb = tok[0];
   auto is = [&](const char* v) { return std::strcmp(verb, v) == 0; };
+
+  if (is("AUTH")) {  // AUTH -> challenge; AUTH <proof> -> trusted
+    if (src == Source::Usb) return copy_reply(reply, "OK AUTH");  // USB needs no proof
+    if (!has_key_) return copy_reply(reply, "ERR NOKEY");
+    if (n == 1) {
+      if (!nonce_valid_) return copy_reply(reply, "ERR AUTH");
+      char buf[kMaxReply];
+      std::strcpy(buf, "OK NONCE ");
+      to_hex(nonce_, kNonceLen, buf + 9);
+      return copy_reply(reply, buf);
+    }
+    uint8_t got[kProofLen], want[kProofLen];
+    bool ok = n == 2 && nonce_valid_ && from_hex(tok[1], got, kProofLen);
+    nonce_valid_ = false;  // one try per connection, right or wrong
+    if (ok) {
+      auth_proof(key_, nonce_, want);
+      ok = same_bytes(got, want, kProofLen);
+    }
+    net_authed_ = ok;
+    return copy_reply(reply, ok ? "OK AUTH" : "ERR AUTH");
+  }
+  if (is("KEY")) {  // USB only: pair this Mac
+    if (src != Source::Usb) return copy_reply(reply, "ERR USBONLY");
+    uint8_t k[kKeyLen];
+    if (n != 2 || !from_hex(tok[1], k, kKeyLen)) return copy_reply(reply, "ERR BADARG");
+    if (!has_key_ || !same_bytes(k, key_, kKeyLen)) {
+      std::memcpy(key_, k, kKeyLen);
+      has_key_ = true;
+      key_changed_ = true;
+      net_authed_ = false;  // anyone on the old key must prove the new one
+    }
+    write_state(reply);
+    return;
+  }
   auto bad = [&] { copy_reply(reply, "ERR BADARG"); };
   auto sched_err = [&](Schedule::Result r) {
     if (r == Schedule::kNoCal) copy_reply(reply, "ERR NOCAL");
@@ -255,6 +295,25 @@ void Device::set_net(NetStatus st, const char* ip) {
   net_ = st;
   std::strncpy(ip_, ip, sizeof ip_ - 1);
   ip_[sizeof ip_ - 1] = '\0';
+}
+
+void Device::set_key(const uint8_t* key) {
+  has_key_ = key != nullptr;
+  if (key) std::memcpy(key_, key, kKeyLen);
+}
+
+void Device::begin_net_session(const uint8_t nonce[kNonceLen]) {
+  in_[1] = LineBuf{};
+  std::memcpy(nonce_, nonce, kNonceLen);
+  nonce_valid_ = true;
+  net_authed_ = false;
+}
+
+bool Device::take_new_key(uint8_t out[kKeyLen]) {
+  if (!key_changed_) return false;
+  key_changed_ = false;
+  std::memcpy(out, key_, kKeyLen);
+  return true;
 }
 
 WifiAction Device::take_wifi_action(WifiCreds* creds) {

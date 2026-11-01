@@ -10,6 +10,8 @@
 #include <util.h>  // openpty (macOS)
 
 #include <atomic>
+#include <cstdlib>
+#include <cstring>
 #include <chrono>
 #include <mutex>
 #include <string>
@@ -64,6 +66,20 @@ class FakeCore {
       if (dev_.feed(src_, c, now_ms(), reply)) out += std::string(reply) + "\r\n";
     }
     return out;
+  }
+  void set_key(const uint8_t* key) {
+    std::lock_guard<std::mutex> lock(mu_);
+    dev_.set_key(key);
+  }
+  void begin_session() {  // a new Wi-Fi client: fresh challenge
+    std::lock_guard<std::mutex> lock(mu_);
+    uint8_t nonce[16];
+    arc4random_buf(nonce, sizeof nonce);
+    dev_.begin_net_session(nonce);
+  }
+  bool has_key(uint8_t out[16]) {
+    std::lock_guard<std::mutex> lock(mu_);
+    return dev_.take_new_key(out);
   }
   void tick() {
     std::lock_guard<std::mutex> lock(mu_);
@@ -187,6 +203,7 @@ class FakeWifi : public FakeCore {
         int c = ::accept(listen_, nullptr, nullptr);
         if (client_ >= 0) close(client_);  // newest connection wins, like the robot
         client_ = c;
+        begin_session();
         continue;
       }
       if (client_ >= 0 && (p[1].revents & (POLLIN | POLLHUP))) {
@@ -283,9 +300,13 @@ void test_silent_device_drops_connection() {
 
 double fake_now() { return 1'800'000'000.0; }
 
+const uint8_t kMacKey[16] = {0xa1, 0xb2, 0xc3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+
 void test_wifi_schedule_push() {
   FakeWifi fake;
+  fake.set_key(kMacKey);
   rma3::Link link([&] { return std::vector<std::string>{fake.target()}; }, fake_now);
+  link.set_key(kMacKey);
   rma3::CalEvent e;
   e.id = "standup";
   e.start = fake_now() + 400;
@@ -313,8 +334,10 @@ void test_wifi_schedule_push() {
 
 void test_schedule_error_keeps_connection() {
   FakeWifi fake;
+  fake.set_key(kMacKey);
   fake.set_fail_ev(true);
   rma3::Link link([&] { return std::vector<std::string>{fake.target()}; }, fake_now);
+  link.set_key(kMacKey);
   rma3::CalEvent e;
   e.id = "x";
   e.start = fake_now() + 60;
@@ -345,6 +368,38 @@ void test_refused_setting_keeps_connection() {
   CHECK(eventually([&] { return fake.settings().sound == 3; }, 1s));
 }
 
+void test_pairing_over_usb_then_wifi() {
+  // Over USB the app hands the robot its key.
+  FakeUsb usb;
+  rma3::Link a([&] { return std::vector<std::string>{usb.path()}; });
+  a.set_key(kMacKey);
+  a.start();
+  CHECK(eventually([&] { return connected(a); }, 2s));
+  uint8_t got[16];
+  CHECK(eventually([&] { return usb.has_key(got); }, 1s) && std::memcmp(got, kMacKey, 16) == 0);
+  a.stop();
+
+  // A robot on Wi-Fi paired with another Mac: not connected, and told why.
+  FakeWifi wifi;
+  uint8_t other[16] = {42};
+  wifi.set_key(other);
+  rma3::Link b([&] { return std::vector<std::string>{wifi.target()}; }, fake_now);
+  b.set_key(kMacKey);
+  b.start();
+  CHECK(eventually([&] { return b.snapshot().not_paired; }, 2s));
+  CHECK(!connected(b));
+  CHECK(wifi.count("STATE") == 0);  // it never got past the challenge
+  b.stop();
+
+  // Same key: connects.
+  wifi.set_key(kMacKey);
+  rma3::Link c([&] { return std::vector<std::string>{wifi.target()}; }, fake_now);
+  c.set_key(kMacKey);
+  c.start();
+  CHECK(eventually([&] { return connected(c); }, 3s));
+  CHECK(wifi.count("STATE") >= 1);
+}
+
 void test_wifi_setup_over_usb() {
   FakeUsb fake;
   rma3::Link link([&] { return std::vector<std::string>{fake.path()}; });
@@ -366,6 +421,7 @@ int main() {
   test_schedule_error_keeps_connection();
   test_refused_setting_keeps_connection();
   test_wifi_setup_over_usb();
+  test_pairing_over_usb_then_wifi();
   if (g_failures == 0) std::printf("test_link: ok\n");
   return g_failures;
 }
