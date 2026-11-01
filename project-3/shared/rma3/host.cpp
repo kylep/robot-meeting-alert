@@ -1,5 +1,7 @@
 #include "host.hpp"
 
+#include "melodies.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -59,7 +61,7 @@ bool parse_state(std::string_view line, State* out) {
     rgb[k] = static_cast<uint8_t>(hi * 16 + lo);
   }
   s.r = rgb[0]; s.g = rgb[1]; s.b = rgb[2];
-  if (!dec(field(3, 'S'), 4, &v)) return false;
+  if (!dec(field(3, 'S'), kSoundCount - 1, &v)) return false;
   s.sound = v;
   if (!dec(field(4, 'M'), 3, &v)) return false;
   s.meter = v;

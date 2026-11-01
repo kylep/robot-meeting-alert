@@ -41,7 +41,7 @@ target_include_directories(rma_core PUBLIC ${ROOT}/shared src)
 target_compile_options(rma_core PRIVATE -Wall -Wextra)
 target_link_libraries(rma_core PUBLIC "-framework IOKit" "-framework CoreFoundation")
 
-add_executable(rma_app MACOSX_BUNDLE src/app_main.cpp src/calendar.mm)
+add_executable(rma_app MACOSX_BUNDLE src/app_main.cpp src/calendar.mm src/calendar_stubs.cpp)
 set_source_files_properties(src/calendar.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 target_compile_options(rma_app PRIVATE -Wall -Wextra)
 target_link_libraries(rma_app PRIVATE rma_core imgui "-framework EventKit" "-framework AppKit" "-framework Foundation")

@@ -48,8 +48,8 @@ void test_commands() {
 void test_errors() {
   Device d;
   manual(d);
-  for (const char* s : {"RGB 256 0 0\n", "RGB 1 2\n", "RGB -1 0 0\n", "RGB 1 2 3 4\n", "SOUND 5\n",
-                        "METER 4\n", "PLAY 5\n", "LIGHT 2\n", "LIGHT\n", "STOP 1\n", "BAL 1 2\n",
+  for (const char* s : {"RGB 256 0 0\n", "RGB 1 2\n", "RGB -1 0 0\n", "RGB 1 2 3 4\n", "SOUND 11\n",
+                        "METER 4\n", "PLAY 11\n", "LIGHT 2\n", "LIGHT\n", "STOP 1\n", "BAL 1 2\n",
                         "RGB 0x1 0 0\n", "RGB 0001 0 0\n"}) {
     CHECK_STR(send(d, s), "ERR BADARG");
   }
@@ -68,15 +68,15 @@ void test_worst_case_reply_round_trips() {
   send(d, "CALGO 600\n");
   d.tick(0, true);
   send(d, "LIGHT 1\n");
-  send(d, "SOUND 4\n");
+  send(d, "SOUND 10\n");
   send(d, "METER 3\n");
   for (int i = 0; i < 40; ++i) d.knob_sample(4095);
   std::string r = send(d, "PLAY\n");
-  CHECK_STR(r, "OK L1 CFFFFFF S4 M3 K100 Z1 T1 A3 W3");
+  CHECK_STR(r, "OK L1 CFFFFFF S10 M3 K100 Z1 T1 A3 W3");
   CHECK(r.size() < Device::kMaxReply);
   rma3::State s;
   CHECK(rma3::parse_state(r, &s));
-  CHECK(s.light && s.r == 255 && s.sound == 4 && s.meter == 3 && s.knob == 100 && s.playing);
+  CHECK(s.light && s.r == 255 && s.sound == 10 && s.meter == 3 && s.knob == 100 && s.playing);
   CHECK(s.mode == 1 && s.stage == 3 && s.net == 3);
   CHECK(!rma3::parse_state("OK L1 CFFFFFF S4 M3 K100 Z1", &s));  // v2 line rejected
 }
@@ -132,7 +132,7 @@ void test_volume() {
 
 void test_sequencer() {
   using rma3::Sequencer;
-  for (uint8_t s = 1; s <= 3; ++s) {
+  for (uint8_t s : {1, 2, 3, 5, 6, 7, 8}) {  // the ~3 s tunes
     const rma3::Melody& m = rma3::melody(s);
     uint32_t total = 0;
     for (size_t i = 0; i < m.count; ++i) total += m.notes[i].ms;

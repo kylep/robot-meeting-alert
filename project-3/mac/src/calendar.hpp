@@ -9,33 +9,30 @@
 #include <string>
 #include <vector>
 
+#include "calendar_provider.hpp"
 #include "rma3/host.hpp"
 
 namespace rma {
 
-struct CalendarInfo {
-  std::string id;       // EventKit calendarIdentifier
-  std::string title;    // shown in the app's picker only
-  std::string account;  // e.g. "Google" / the account's name
-  float rgb[3] = {0.5f, 0.5f, 0.5f};
-};
-
-class CalendarSource {
+// The Mac Calendar app's data, through EventKit.
+class CalendarSource : public CalendarProvider {
  public:
-  enum class Access { Unknown, Requesting, Granted, Denied };
-
   CalendarSource();
   ~CalendarSource();
   CalendarSource(const CalendarSource&) = delete;
   CalendarSource& operator=(const CalendarSource&) = delete;
 
-  void request_access();  // shows the macOS prompt the first time
-  Access access() const { return access_.load(); }
-  std::vector<CalendarInfo> calendars();
-  // Events overlapping [from, to) in the chosen calendars (seconds since 1970).
-  std::vector<rma3::CalEvent> events(const std::vector<std::string>& calendar_ids, double from, double to);
-  // True once after the calendar database changed.
-  bool take_changed() { return changed_.exchange(false); }
+  const char* name() const override { return "Mac Calendar app"; }
+  const char* help() const override {
+    return "Uses every account added to the Mac's Calendar app (System Settings > Internet Accounts): "
+           "Google, Google Workspace, Exchange, iCloud.";
+  }
+  void request_access() override;  // shows the macOS prompt the first time
+  Access access() const override { return access_.load(); }
+  std::vector<CalendarInfo> calendars() override;
+  std::vector<rma3::CalEvent> events(const std::vector<std::string>& calendar_ids, double from,
+                                     double to) override;
+  bool take_changed() override { return changed_.exchange(false); }
 
   struct Impl;
 

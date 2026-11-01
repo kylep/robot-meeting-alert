@@ -11,6 +11,7 @@
 #include <ctime>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -28,7 +29,9 @@ namespace {
 constexpr int kWidth = 880;
 constexpr int kHeight = 600;
 constexpr double kLookahead = 12 * 3600;
-const char* kSounds[] = {"Off", "Westminster chime", "Twinkle twinkle", "Ode to joy", "Beep"};
+const char* kSounds[] = {"Off",          "Westminster chime", "Twinkle twinkle", "Ode to joy",
+                         "Beep",         "Fur Elise",         "Frere Jacques",   "Mary had a little lamb",
+                         "Happy birthday", "Doorbell",        "Chirp"};
 const char* kMeterModes[] = {"None", "Brightness", "Volume", "Both"};
 const char* kNet[] = {"no Wi-Fi settings", "joining Wi-Fi...", "on Wi-Fi", "can't join Wi-Fi"};
 
@@ -194,15 +197,19 @@ int main(int, char**) {
   rma3::Link link([&] { return finder.candidates(); });
   link.start();
 
-  rma::CalendarSource cal;
-  std::set<std::string> chosen = prefs.list("calendars");
+  // Calendar source (Settings tab). Chosen calendars are remembered per source.
+  int source = prefs.num("source", 0);
+  if (source < 0 || source >= rma::kCalendarKinds) source = 0;
+  auto chosen_key = [&] { return source == 0 ? std::string("calendars") : "calendars" + std::to_string(source); };
+  std::unique_ptr<rma::CalendarProvider> cal = rma::make_calendar_provider(static_cast<rma::CalendarKind>(source));
+  std::set<std::string> chosen = prefs.list(chosen_key());
   std::vector<rma::CalendarInfo> calendars;
   std::vector<rma3::CalEvent> events;
   double test_until = 0;  // a pretend meeting from the Test alert button
   bool test_on = false;
   rma3::CalEvent test_event;
   double next_fetch = 0;
-  if (!chosen.empty()) cal.request_access();
+  if (!chosen.empty()) cal->request_access();
 
   rma3::Desired want;
   want.light = prefs.num("light", 1) != 0;
@@ -234,10 +241,10 @@ int main(int, char**) {
       test_on = false;
       next_fetch = 0;
     }
-    bool cal_changed = cal.take_changed();
-    if (cal_changed && cal.access() == rma::CalendarSource::Access::Granted) calendars = cal.calendars();
+    bool cal_changed = cal->take_changed();
+    if (cal_changed && cal->access() == rma::CalendarProvider::Access::Granted) calendars = cal->calendars();
     if (cal_changed || now >= next_fetch) {
-      events = cal.events(std::vector<std::string>(chosen.begin(), chosen.end()), now - 86400, now + kLookahead);
+      events = cal->events(std::vector<std::string>(chosen.begin(), chosen.end()), now - 86400, now + kLookahead);
       next_fetch = now + 30;
       std::vector<rma3::CalEvent> all = events;
       if (now < test_until) all.push_back(test_event);
@@ -295,21 +302,24 @@ int main(int, char**) {
     // ---- Calendar
     if (mode == 1) {
       Section("CALENDAR");
-      switch (cal.access()) {
-        case rma::CalendarSource::Access::Unknown:
+      switch (cal->access()) {
+        case rma::CalendarProvider::Access::Unknown:
           ImGui::TextWrapped("The robot needs to see when your meetings are (times only, never titles).");
-          if (ImGui::Button("Allow calendar access")) cal.request_access();
+          if (ImGui::Button("Allow calendar access")) cal->request_access();
           break;
-        case rma::CalendarSource::Access::Requesting:
+        case rma::CalendarProvider::Access::NotBuilt:
+          ImGui::TextWrapped("\"%s\" isn't built yet. Choose \"Mac Calendar app\" in Settings.", cal->name());
+          break;
+        case rma::CalendarProvider::Access::Requesting:
           ImGui::TextUnformatted("Waiting for permission...");
           break;
-        case rma::CalendarSource::Access::Denied:
+        case rma::CalendarProvider::Access::Denied:
           ImGui::TextWrapped(
               "Calendar access is off. Turn it on in System Settings > Privacy & Security > Calendars, "
               "then reopen the app.");
           break;
-        case rma::CalendarSource::Access::Granted: {
-          if (calendars.empty()) calendars = cal.calendars();
+        case rma::CalendarProvider::Access::Granted: {
+          if (calendars.empty()) calendars = cal->calendars();
           std::string account;
           bool changed = false;
           ImGui::BeginChild("cals", ImVec2(-1, 170 * scale), ImGuiChildFlags_None);
@@ -428,8 +438,24 @@ int main(int, char**) {
     ImGui::EndTabItem();
     }
 
-    // ---- Settings tab: Wi-Fi setup and the robot's address
+    // ---- Settings tab: calendar source, Wi-Fi setup and the robot's address
     if (tabs && ImGui::BeginTabItem("Settings")) {
+      Section("CALENDAR SOURCE");
+      for (int k = 0; k < rma::kCalendarKinds; ++k) {
+        if (ImGui::RadioButton(rma::calendar_kind_name(static_cast<rma::CalendarKind>(k)), source == k) &&
+            source != k) {
+          source = k;
+          cal = rma::make_calendar_provider(static_cast<rma::CalendarKind>(k));
+          calendars.clear();
+          events.clear();
+          chosen = prefs.list(chosen_key());
+          next_fetch = 0;
+        }
+      }
+      ImGui::Spacing();
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled("%s", cal->help());
+      ImGui::PopTextWrapPos();
       Section("WI-FI SETUP");
       bool usb = connected && !snap.over_wifi;
       ImGui::TextWrapped(usb ? "Type your Wi-Fi details; they are saved on the robot (not in this app)."
@@ -472,7 +498,8 @@ int main(int, char**) {
     Prefs next = prefs;
     std::string ids;
     for (const auto& id : chosen) ids += (ids.empty() ? "" : ",") + id;
-    next.kv["calendars"] = ids;
+    next.kv[chosen_key()] = ids;
+    next.kv["source"] = std::to_string(source);
     next.kv["mode"] = std::to_string(want.mode);
     next.kv["light"] = std::to_string(want.light ? 1 : 0);
     next.kv["sound"] = std::to_string(want.sound);

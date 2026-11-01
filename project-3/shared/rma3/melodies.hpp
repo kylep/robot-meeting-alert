@@ -18,7 +18,11 @@ struct Melody {
   size_t count;
 };
 
-enum Sound : uint8_t { kOff = 0, kWestminster = 1, kTwinkle = 2, kOde = 3, kBeep = 4, kSoundCount = 5 };
+enum Sound : uint8_t {
+  kOff = 0, kWestminster = 1, kTwinkle = 2, kOde = 3, kBeep = 4,
+  kFurElise = 5, kFrereJacques = 6, kMary = 7, kBirthday = 8, kDoorbell = 9, kChirp = 10,
+  kSoundCount = 11
+};
 
 // melody(kOff) has no notes.
 const Melody& melody(uint8_t sound);

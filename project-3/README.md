@@ -28,6 +28,7 @@ on the robot, not in the app or this repo.
   commands, over USB or Wi-Fi (`shared/rma3/`).
 
 Docs: [Design](docs/design.md) (architecture, protocol, review log) ·
+[Work calendar options](docs/work-calendar.md) ·
 [Kit inventory](../docs/inventory.md)
 
 ## Quick start
@@ -72,6 +73,11 @@ is broken.
 
 ### Switching to the work calendar (on the work laptop)
 
+If the work account can't be added to the Mac's Calendar app, see
+[docs/work-calendar.md](docs/work-calendar.md) for the other options
+(stubbed in the app under Settings → Calendar source, not built yet).
+
+
 1. Clone this repo and `make mac` on the work laptop.
 2. Add the work account in System Settings → Internet Accounts (if your
    employer allows it), so it shows up in the Calendar app.
@@ -82,6 +88,21 @@ is broken.
 The robot must be on a Wi-Fi network the work laptop can reach. If it isn't
 found automatically, type the robot's address (from `rmactl net`) under
 **Wi-Fi setup → Robot address**.
+
+## Sounds
+
+Pick one as the alert sound (or preview it) in the app, or `rmactl sound N` / `rmactl play N`:
+
+| # | Sound | # | Sound |
+|---|---|---|---|
+| 0 | Off | 6 | Frère Jacques |
+| 1 | Westminster chime | 7 | Mary had a little lamb |
+| 2 | Twinkle twinkle | 8 | Happy birthday |
+| 3 | Ode to joy | 9 | Doorbell (ding-dong) |
+| 4 | Beep | 10 | Chirp (quick rising notes) |
+| 5 | Für Elise | | |
+
+All public domain. Adding one = a few lines in `shared/rma3/melodies.cpp`, then `make flash`.
 
 ## rmactl
 

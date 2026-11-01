@@ -41,7 +41,7 @@ std::vector<Pushed> pick_meetings(double now, const std::vector<CalEvent>& event
 // 1..65535 from the event identifier and start (no title involved).
 uint16_t meeting_id(const std::string& event_id, double start);
 
-// Accepts exactly "OK L<0|1> C<RRGGBB> S<0-4> M<0-3> K<0-100> Z<0|1> T<0|1> A<0-3> W<0-3>".
+// Accepts exactly "OK L<0|1> C<RRGGBB> S<0-10> M<0-3> K<0-100> Z<0|1> T<0|1> A<0-3> W<0-3>".
 bool parse_state(std::string_view line, State* out);
 
 // Accepts "OK NET W<0-3> <ip or ->".
