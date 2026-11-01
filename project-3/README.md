@@ -61,6 +61,15 @@ make run        # opens the app
 Run the app from Finder or `make run`, not from inside tmux: macOS blocks
 local-network access for programs started there.
 
+**After rebuilding the app, check its permissions.** macOS remembers the
+calendar and local-network permissions by the app's signature. Ours is a free
+"ad hoc" signature that changes with every `make mac`, so after a rebuild
+macOS may ask again, or quietly block the app. The app then says "Looking for
+the robot" or shows no calendars even though nothing else is wrong. Check
+System Settings → Privacy & Security → **Local Network** and **Calendars**
+and switch Robot Meeting Alert back on before assuming the robot or the code
+is broken.
+
 ### Switching to the work calendar (on the work laptop)
 
 1. Clone this repo and `make mac` on the work laptop.
@@ -93,7 +102,7 @@ lasting 2 minutes (calendar mode), for testing without a calendar. `wifi` and
 | Symptom | Fix |
 |---|---|
 | Pico LED keeps blinking | Wrong Wi-Fi name/password, or a 5 GHz-only network (the Pico needs 2.4 GHz). Plug in USB, `rmactl wifi` again |
-| App says "Looking for the robot" | Same Wi-Fi as the Mac? Allowed **Local Network** for the app (System Settings → Privacy & Security → Local Network)? Try the robot's address under Wi-Fi setup |
+| App says "Looking for the robot" | Rebuilt the app recently? See "After rebuilding" above. Same Wi-Fi as the Mac? Allowed **Local Network** for the app (System Settings → Privacy & Security → Local Network)? Try the robot's address under Wi-Fi setup |
 | Robot is dim blue | The app isn't running, or the Mac is asleep or on another network |
 | No melody at a meeting | Alert sound set to Off, or the knob is at 0 in Volume/Both mode |
 | Melody for a meeting I declined | Decline it in the calendar; the Mac skips declined, all-day and "free" events |
