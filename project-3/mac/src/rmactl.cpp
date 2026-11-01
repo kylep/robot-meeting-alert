@@ -6,8 +6,9 @@
 // `play` waits until the sound finishes (closing the port would stop it).
 // `wifi` asks for the network name and password on the terminal (USB only),
 // so the password never lands on a command line or in shell history.
-// `pair` (USB) gives the robot this Mac's key; over Wi-Fi (--host) the robot
-// only obeys a Mac holding that key.
+// `pair` asks for the robot passphrase and saves its key on this Mac; with the
+// robot on USB it sets the robot's passphrase too. Over Wi-Fi (--host) the
+// robot only obeys a Mac holding that key.
 // `event` gives the robot one pretend meeting starting IN_S seconds from now.
 // Exit: 0 ok, 1 device error/timeout, 2 no device, 3 port busy, 64 usage.
 #include <termios.h>
@@ -43,17 +44,19 @@ int usage() {
   return 64;
 }
 
+rma3::NetSession g_session;  // Wi-Fi only: handshake + line tags
+
 // Sends one command; returns the exit code and the reply line.
 int send_command(rma::SerialPort& port, const std::string& cmd, std::string* reply) {
   auto deadline = Clock::now() + 500ms;
-  if (port.write_all(cmd + "\n", deadline) != IoResult::Ok) {
+  if (port.write_all(g_session.sign(cmd) + "\n", deadline) != IoResult::Ok) {
     std::fprintf(stderr, "rmactl: write failed\n");
     return 1;
   }
   std::string line;
   do {
     if (port.read_line(&line, deadline) != IoResult::Ok) {
-      std::fprintf(stderr, "rmactl: no reply to %s\n", cmd.rfind("PASS", 0) == 0 ? "PASS" : cmd.c_str());
+      std::fprintf(stderr, "rmactl: no reply to %s\n", cmd.rfind("PASS", 0) == 0 ? "PASS" : cmd.rfind("KEY", 0) == 0 ? "KEY" : cmd.c_str());
       return 1;
     }
   } while (line.empty());
@@ -123,14 +126,25 @@ int main(int argc, char** argv) {
   } else if (v == "mode" && a.size() == 2 && (a[1] == "cal" || a[1] == "manual")) {
     cmd = a[1] == "cal" ? "MODE 1" : "MODE 0";
   } else if (v == "pair" && a.size() == 1) {
-    if (!host.empty()) {
-      std::fprintf(stderr, "rmactl: pair works over USB only\n");
+    // Saves the passphrase's key on this Mac; with the robot on USB, sets it there too.
+    std::string p1 = prompt("Robot passphrase (8+ characters): ", true);
+    std::string p2 = prompt("Again: ", true);
+    if (p1 != p2 || p1.size() < 8) {
+      std::fprintf(stderr, "rmactl: passphrases differ or are shorter than 8 characters\n");
       return 64;
     }
     uint8_t key[16];
-    if (!rma::load_or_create_pairing_key(key)) {
-      std::fprintf(stderr, "rmactl: cannot create %s\n", rma::pairing_key_path().c_str());
+    rma3::passphrase_key(p1.c_str(), key);
+    p1.assign(p1.size(), '\0');
+    p2.assign(p2.size(), '\0');
+    if (!rma::save_pairing_key(key)) {
+      std::fprintf(stderr, "rmactl: cannot write %s\n", rma::pairing_key_path().c_str());
       return 1;
+    }
+    std::printf("saved on this Mac\n");
+    if (!host.empty() || (port_path.empty() && rma::find_pico_ports().empty())) {
+      std::printf("robot not on USB: its passphrase is unchanged (plug it in and run rmactl pair to set it)\n");
+      return 0;
     }
     char hex[33];
     rma3::to_hex(key, 16, hex);
@@ -164,26 +178,20 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "rmactl: no robot answering at %s:%d\n", host.c_str(), rma::kRobotPort);
       return 2;
     }
-    // Prove this Mac is paired: answer the robot's challenge with the key.
-    uint8_t key[16], nonce[16], proof[16];
+    // Handshake: the robot proves it holds this Mac's key, then we do.
+    uint8_t key[16];
     if (!rma::load_pairing_key(key)) {
-      std::fprintf(stderr, "rmactl: this Mac isn't paired; plug the robot in and run: rmactl pair\n");
+      std::fprintf(stderr, "rmactl: no robot passphrase on this Mac yet; run: rmactl pair\n");
       return 1;
     }
-    std::string challenge;
-    if (send_command(port, "AUTH", &challenge) != 0 || challenge.rfind("OK NONCE ", 0) != 0 ||
-        !rma3::from_hex(challenge.c_str() + 9, nonce, 16)) {
-      std::fprintf(stderr, "rmactl: robot isn't paired (%s); plug it in and run: rmactl pair\n", challenge.c_str());
+    std::string reply_hi, auth, answer;
+    if (send_command(port, g_session.hello(), &reply_hi) != 0 || !g_session.answer(key, reply_hi, &auth) ||
+        send_command(port, auth, &answer) != 0) {
+      std::fprintf(stderr, "rmactl: the robot at %s didn't accept this Mac's passphrase (rmactl pair)\n",
+                   host.c_str());
       return 1;
     }
-    rma3::auth_proof(key, nonce, proof);
-    char hex[33];
-    rma3::to_hex(proof, 16, hex);
-    std::string answer;
-    if (send_command(port, std::string("AUTH ") + hex, &answer) != 0) {
-      std::fprintf(stderr, "rmactl: the robot is paired with a different Mac (run rmactl pair over USB)\n");
-      return 1;
-    }
+    g_session.start();
   }
   std::vector<std::string> candidates = port_path.empty() ? rma::find_pico_ports() : std::vector<std::string>{port_path};
   if (host.empty() && candidates.empty()) {
@@ -212,7 +220,7 @@ int main(int argc, char** argv) {
       return rc;
     }
   }
-  bool secret = cmd.rfind("WIFI ", 0) == 0;
+  bool secret = cmd.rfind("WIFI ", 0) == 0 || cmd.rfind("KEY ", 0) == 0;
   if (!secret || more.empty()) std::printf("%s\n", reply.c_str());
   else std::printf("saved; the robot is joining the network (check with: rmactl net)\n");
 

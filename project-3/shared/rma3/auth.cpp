@@ -103,10 +103,72 @@ void hmac_sha256(const uint8_t* key, size_t key_len, const uint8_t* msg, size_t 
   b.finish(out);
 }
 
-void auth_proof(const uint8_t key[kKeyLen], const uint8_t nonce[kNonceLen], uint8_t out[kProofLen]) {
+namespace {
+
+void labelled(const uint8_t key[kKeyLen], const char* label, const uint8_t nm[kNonceLen],
+              const uint8_t nr[kNonceLen], uint8_t* out, size_t out_len) {
+  uint8_t msg[16 + 2 * kNonceLen];
+  size_t l = std::strlen(label);
+  std::memcpy(msg, label, l);
+  std::memcpy(msg + l, nm, kNonceLen);
+  std::memcpy(msg + l + kNonceLen, nr, kNonceLen);
   uint8_t mac[32];
-  hmac_sha256(key, kKeyLen, nonce, kNonceLen, mac);
-  std::memcpy(out, mac, kProofLen);
+  hmac_sha256(key, kKeyLen, msg, l + 2 * kNonceLen, mac);
+  std::memcpy(out, mac, out_len);
+}
+
+}  // namespace
+
+void robot_proof(const uint8_t key[kKeyLen], const uint8_t nm[kNonceLen], const uint8_t nr[kNonceLen],
+                 uint8_t out[kProofLen]) {
+  labelled(key, "rma3 robot", nm, nr, out, kProofLen);
+}
+
+void mac_proof(const uint8_t key[kKeyLen], const uint8_t nm[kNonceLen], const uint8_t nr[kNonceLen],
+               uint8_t out[kProofLen]) {
+  labelled(key, "rma3 mac", nm, nr, out, kProofLen);
+}
+
+void session_key(const uint8_t key[kKeyLen], const uint8_t nm[kNonceLen], const uint8_t nr[kNonceLen],
+                 uint8_t out[kKeyLen]) {
+  labelled(key, "rma3 session", nm, nr, out, kKeyLen);
+}
+
+void line_tag(const uint8_t ks[kKeyLen], uint32_t counter, const char* line, size_t len, uint8_t out[kTagLen]) {
+  uint8_t msg[4 + 128];
+  if (len > 128) len = 128;  // lines are at most 96 bytes
+  msg[0] = static_cast<uint8_t>(counter >> 24);
+  msg[1] = static_cast<uint8_t>(counter >> 16);
+  msg[2] = static_cast<uint8_t>(counter >> 8);
+  msg[3] = static_cast<uint8_t>(counter);
+  std::memcpy(msg + 4, line, len);
+  uint8_t mac[32];
+  hmac_sha256(ks, kKeyLen, msg, 4 + len, mac);
+  std::memcpy(out, mac, kTagLen);
+}
+
+void pbkdf2_sha256(const char* pass, size_t pass_len, const uint8_t* salt, size_t salt_len, uint32_t iters,
+                   uint8_t* out, size_t out_len) {
+  // Block 1 only: U1 = HMAC(P, S || 00000001), Ui = HMAC(P, Ui-1), T = U1 ^ ... ^ Uc.
+  uint8_t msg[128];
+  if (salt_len > sizeof msg - 4) salt_len = sizeof msg - 4;
+  std::memcpy(msg, salt, salt_len);
+  msg[salt_len] = 0; msg[salt_len + 1] = 0; msg[salt_len + 2] = 0; msg[salt_len + 3] = 1;
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(pass);
+  uint8_t u[32], t[32];
+  hmac_sha256(p, pass_len, msg, salt_len + 4, u);
+  std::memcpy(t, u, 32);
+  for (uint32_t i = 1; i < iters; ++i) {
+    hmac_sha256(p, pass_len, u, 32, u);
+    for (int k = 0; k < 32; ++k) t[k] ^= u[k];
+  }
+  std::memcpy(out, t, out_len > 32 ? 32 : out_len);
+}
+
+void passphrase_key(const char* passphrase, uint8_t out[kKeyLen]) {
+  static const char kSalt[] = "robot-meeting-alert pairing v1";
+  pbkdf2_sha256(passphrase, std::strlen(passphrase), reinterpret_cast<const uint8_t*>(kSalt), sizeof kSalt - 1,
+                kPassphraseRounds, out, kKeyLen);
 }
 
 bool same_bytes(const uint8_t* a, const uint8_t* b, size_t n) {

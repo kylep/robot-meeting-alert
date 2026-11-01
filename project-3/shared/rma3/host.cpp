@@ -1,6 +1,10 @@
 #include "host.hpp"
 
+#include "auth.hpp"
 #include "melodies.hpp"
+
+#include <cstdlib>
+#include <cstring>
 
 #include <algorithm>
 #include <cmath>
@@ -116,6 +120,43 @@ std::vector<Pushed> pick_meetings(double now, const std::vector<CalEvent>& event
     out.push_back(p);
   }
   return out;
+}
+
+std::string NetSession::hello() {
+  active_ = false;
+  counter_ = 0;
+  arc4random_buf(nm_, sizeof nm_);
+  char hex[33];
+  to_hex(nm_, 16, hex);
+  return std::string("HI ") + hex;
+}
+
+bool NetSession::answer(const uint8_t key[16], const std::string& reply, std::string* auth_line) {
+  // "OK HI " + 32 hex nr + " " + 32 hex proof
+  if (reply.size() != 6 + 32 + 1 + 32 || reply.rfind("OK HI ", 0) != 0 || reply[38] != ' ') return false;
+  uint8_t proof[16], want[16];
+  if (!from_hex(reply.substr(6, 32).c_str(), nr_, 16) || !from_hex(reply.substr(39).c_str(), proof, 16)) {
+    return false;
+  }
+  std::memcpy(key_, key, 16);
+  robot_proof(key_, nm_, nr_, want);
+  if (!same_bytes(proof, want, 16)) return false;  // not our robot: give it nothing
+  uint8_t mine[16];
+  mac_proof(key_, nm_, nr_, mine);
+  session_key(key_, nm_, nr_, ks_);
+  char hex[33];
+  to_hex(mine, 16, hex);
+  *auth_line = std::string("AUTH ") + hex;
+  return true;
+}
+
+std::string NetSession::sign(const std::string& line) {
+  if (!active_) return line;
+  uint8_t tag[kTagLen];
+  line_tag(ks_, counter_++, line.data(), line.size(), tag);
+  char hex[2 * kTagLen + 1];
+  to_hex(tag, kTagLen, hex);
+  return line + " #" + hex;
 }
 
 bool parse_net(std::string_view line, int* status, std::string* ip) {

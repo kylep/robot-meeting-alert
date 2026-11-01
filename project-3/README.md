@@ -52,9 +52,11 @@ make run        # opens the app
    use **Wi-Fi setup** in the app. Check with `build/mac/rmactl net`: `W2`
    and an address means it's on Wi-Fi. The Pico's own little LED blinks while
    joining and stays on once connected.
-3. **Pair it with this Mac:** with the robot still on USB, open the app
-   (`make run`) or run `build/mac/rmactl pair`. Over Wi-Fi the robot only
-   obeys a Mac it's paired with (see Security below).
+3. **Give it a passphrase:** with the robot still on USB, open the app
+   (`make run`), go to Settings → Robot passphrase, type one (8+ characters;
+   a few random words is good) and click **Save, and set on robot**. Or run
+   `build/mac/rmactl pair`. Over Wi-Fi the robot only obeys a Mac that knows
+   the passphrase (see Security below).
 4. Unplug it from the Mac and power it from any USB phone charger.
 5. `make run`. The first time, macOS asks to let the app use your
    **calendars** and your **local network**: allow both. Choose **Calendar**
@@ -84,10 +86,11 @@ If the work account can't be added to the Mac's Calendar app, see
 1. Clone this repo and `make mac` on the work laptop.
 2. Add the work account in System Settings → Internet Accounts (if your
    employer allows it), so it shows up in the Calendar app.
-3. Plug the robot into the work laptop with USB once and open the app: that
-   pairs the robot with the work laptop (and unpairs the personal Mac).
-4. Back on the charger: allow calendars and local network, tick the work
-   calendar. Quit the app on the personal Mac.
+3. Open the app, go to Settings → Robot passphrase and type the same
+   passphrase (**Save on this Mac**). No USB needed. Both Macs can now
+   control the robot.
+4. Allow calendars and local network, tick the work calendar, and quit the
+   app on the personal Mac (only one should drive it at a time).
 
 The robot must be on a Wi-Fi network the work laptop can reach. If it isn't
 found automatically, type the robot's address (from `rmactl net`) under
@@ -117,7 +120,8 @@ rmactl [--port PATH | --host IP] hello | state | light on|off | rgb R G B
        | event IN_S DUR_S
 ```
 
-`pair` (USB) pairs the robot with this Mac; `--host` then works over Wi-Fi.
+`pair` asks for the robot passphrase and saves it on this Mac (and on the
+robot, if it's on USB); `--host` then works over Wi-Fi.
 `event 60 120` gives the robot one pretend meeting starting in 60 seconds and
 lasting 2 minutes (calendar mode), for testing without a calendar. `wifi` and
 `wificlr` work over USB only. Exit codes: 0 ok, 1 device error, 2 no robot,
@@ -128,7 +132,7 @@ lasting 2 minutes (calendar mode), for testing without a calendar. `wifi` and
 | Symptom | Fix |
 |---|---|
 | Pico LED keeps blinking | Wrong Wi-Fi name/password, or a 5 GHz-only network (the Pico needs 2.4 GHz). Plug in USB, `rmactl wifi` again |
-| App says the robot "isn't paired with this Mac" | Plug it in with USB while the app is open (or `rmactl pair`) |
+| App says the robot "didn't accept this Mac's passphrase" | Retype it in Settings → Robot passphrase. Forgot it? Plug the robot in with USB and set a new one |
 | App says "Looking for the robot" | Rebuilt the app recently? See "After rebuilding" above. Same Wi-Fi as the Mac? Allowed **Local Network** for the app (System Settings → Privacy & Security → Local Network)? Try the robot's address under Wi-Fi setup |
 | Robot is dim blue | The app isn't running, or the Mac is asleep or on another network |
 | No melody at a meeting | Alert sound set to Off, or the knob is at 0 in Volume/Both mode |
@@ -136,16 +140,20 @@ lasting 2 minutes (calendar mode), for testing without a calendar. `wifi` and
 | Buzzer hums or gets warm | Unplug the robot (same safety rule as project 2) |
 
 Security notes:
-- **Pairing.** Plugging the robot into a Mac with USB (app open, or
-  `rmactl pair`) gives it that Mac's random key, kept in
+- **Passphrase.** Over Wi-Fi the robot only obeys a Mac that knows its
+  passphrase. Each Mac turns the passphrase into a key (PBKDF2, deliberately
+  slow) and keeps only the key, in
   `~/Library/Application Support/RobotMeetingAlert/pairing.key` (readable
-  only by you). Over Wi-Fi the robot sends a fresh random challenge and only
-  obeys a Mac that answers it with the key. The key never crosses the
-  network, and an old answer can't be replayed. Others on your Wi-Fi can't
-  change the light, play sounds, or kick a paired app that's in use off the
-  robot. Pairing a second Mac unpairs the first.
-- Commands over Wi-Fi are not encrypted, so someone on your network could
-  watch them (meeting times, colours), just not send their own.
+  only by you). On connecting, the robot proves it has the key first (so a
+  fake robot learns nothing), then the Mac does, and every command after
+  that carries a signature tied to that connection: others on your Wi-Fi
+  can't send, change or replay commands, or kick off an app that's in use.
+  The passphrase itself never crosses the network. Setting or changing it
+  on the robot needs USB.
+- Pick a passphrase that isn't guessable (a few random words): someone who
+  records the Wi-Fi traffic could try guesses offline.
+- Commands over Wi-Fi are signed but not encrypted, so someone on your
+  network could read them (meeting times, colours).
 - Wi-Fi settings and pairing change only over USB. The Wi-Fi password and
   key are stored in plain text on the robot's flash (no secure storage on
   this board): run `rmactl wificlr` before giving the board away.

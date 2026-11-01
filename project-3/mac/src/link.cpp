@@ -89,6 +89,12 @@ void Link::set_key(const uint8_t key[kKeyLen]) {
   has_key_ = true;
 }
 
+void Link::set_key_on_robot() {
+  std::lock_guard<std::mutex> lock(mu_);
+  key_pending_ = true;
+  snap_.key_result = "Sending...";
+}
+
 LinkSnapshot Link::snapshot() const {
   std::lock_guard<std::mutex> lock(mu_);
   return snap_;
@@ -136,6 +142,7 @@ bool Link::try_connect() {
     int tcp_port = 0;
     bool tcp = split_tcp(target, &ip, &tcp_port);
     OpenResult r = tcp ? port_.open_tcp(ip, tcp_port, kConnectTimeout) : port_.open(target);
+    session_ = NetSession{};  // a fresh connection starts untrusted
     if (r == OpenResult::Busy) {
       busy = true;
       err = "port busy: " + target;
@@ -157,17 +164,19 @@ bool Link::try_connect() {
       port_.close();
       continue;
     }
+    over_tcp_ = tcp;
     if (tcp && !prove_key()) {  // a robot on Wi-Fi only obeys its paired Mac
       port_.close();
       std::lock_guard<std::mutex> lock(mu_);
       snap_.not_paired = true;
-      err = "The robot on Wi-Fi isn't paired with this Mac. Plug it in with USB once to pair.";
+      err = "The robot on Wi-Fi didn't accept this Mac's passphrase.";
       continue;
     }
     {
       std::lock_guard<std::mutex> lock(mu_);
-      std::string wifi_result = snap_.wifi_result;
+      std::string wifi_result = snap_.wifi_result, key_result = snap_.key_result;
       snap_ = LinkSnapshot{};
+      snap_.key_result = key_result;
       snap_.state = LinkState::Connected;
       snap_.port = target;
       snap_.over_wifi = tcp;
@@ -179,11 +188,9 @@ bool Link::try_connect() {
       wifi_pass_.assign(wifi_pass_.size(), '\0');
       wifi_pass_.clear();
     }
-    over_tcp_ = tcp;
     last_net_ = last_push_ = Clock::time_point{};
     rejected_.clear();
     pushed_gen_ = 0;
-    if (!tcp) give_key();
     if (command("STATE") != Reply::Ok) {  // learn the device's settings; reconcile pushes ours
       port_.close();
       return false;
@@ -198,7 +205,7 @@ bool Link::try_connect() {
 
 Link::Reply Link::send(const std::string& cmd, std::string* line) {
   auto deadline = Clock::now() + kReplyTimeout;
-  if (port_.write_all(cmd + "\n", deadline) != IoResult::Ok) return Reply::Dead;
+  if (port_.write_all(session_.sign(cmd) + "\n", deadline) != IoResult::Ok) return Reply::Dead;
   last_cmd_ = Clock::now();
   for (;;) {
     if (port_.read_line(line, deadline) != IoResult::Ok) return Reply::Dead;
@@ -214,30 +221,41 @@ bool Link::prove_key() {
     if (!has_key_) return false;
     std::memcpy(key, key_, kKeyLen);
   }
-  std::string line;
-  uint8_t nonce[kNonceLen], proof[kProofLen];
-  if (send("AUTH", &line) != Reply::Ok || line.rfind("OK NONCE ", 0) != 0 ||
-      !from_hex(line.c_str() + 9, nonce, kNonceLen)) {
-    return false;
-  }
-  auth_proof(key, nonce, proof);
-  char hex[2 * kProofLen + 1];
-  to_hex(proof, kProofLen, hex);
-  return send(std::string("AUTH ") + hex, &line) == Reply::Ok && line == "OK AUTH";
+  std::string line, auth;
+  if (send(session_.hello(), &line) != Reply::Ok) return false;
+  // The robot proves itself first; an impostor gets nothing it could relay.
+  if (!session_.answer(key, line, &auth)) return false;
+  if (send(auth, &line) != Reply::Ok || line != "OK AUTH") return false;
+  session_.start();
+  return true;
 }
 
-// Older firmware doesn't know KEY (ERR BADCMD): harmless, it just stays unpaired.
-void Link::give_key() {
+bool Link::give_key() {
   uint8_t key[kKeyLen];
   {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!has_key_) return;
+    if (!key_pending_) return true;
+    key_pending_ = false;
+    if (!has_key_) {
+      snap_.key_result = "Type a passphrase first.";
+      return true;
+    }
     std::memcpy(key, key_, kKeyLen);
   }
-  char hex[2 * kKeyLen + 1];
-  to_hex(key, kKeyLen, hex);
-  std::string line;
-  send(std::string("KEY ") + hex, &line);
+  std::string result;
+  if (over_tcp_) {
+    result = "Plug the robot in with USB to change its passphrase.";
+  } else {
+    char hex[2 * kKeyLen + 1];
+    to_hex(key, kKeyLen, hex);
+    std::string line;
+    Reply r = send(std::string("KEY ") + hex, &line);
+    if (r == Reply::Dead) return false;
+    result = r == Reply::Ok ? "The robot now uses this passphrase." : "The robot's firmware is too old (make flash).";
+  }
+  std::lock_guard<std::mutex> lock(mu_);
+  snap_.key_result = result;
+  return true;
 }
 
 Link::Reply Link::command(const std::string& cmd) {
@@ -361,6 +379,7 @@ void Link::connected_loop() {
       if (command(e) == Reply::Dead) return;
     }
     if (!do_wifi()) return;
+    if (!give_key()) return;
     if (!push_schedule()) return;
     if (Clock::now() - last_net_ >= kNetPoll) {
       std::string line;

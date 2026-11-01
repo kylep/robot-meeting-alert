@@ -4,8 +4,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <cstdio>
 #include <cstdlib>
-#include <cstring>
 
 namespace rma {
 
@@ -22,17 +22,16 @@ bool load_pairing_key(uint8_t key[16]) {
   return n == 16;
 }
 
-bool load_or_create_pairing_key(uint8_t key[16]) {
-  if (load_pairing_key(key)) return true;
+bool save_pairing_key(const uint8_t key[16]) {
   std::string path = pairing_key_path();
   std::string dir = path.substr(0, path.rfind('/'));
   mkdir(dir.c_str(), 0755);
-  arc4random_buf(key, 16);
-  int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
-  if (fd < 0) return load_pairing_key(key);  // another process made it first
+  std::string tmp = path + ".tmp";
+  int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (fd < 0) return false;
   bool ok = ::write(fd, key, 16) == 16;
   ::close(fd);
-  return ok;
+  return ok && std::rename(tmp.c_str(), path.c_str()) == 0;
 }
 
 }  // namespace rma

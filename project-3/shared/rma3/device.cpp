@@ -154,9 +154,15 @@ bool Device::handle_wifi(Source src, char* line, char* reply) {
 }
 
 void Device::handle_line(Source src, char* line, uint32_t now_ms, char* reply) {
-  // Over Wi-Fi, nothing but HELLO and AUTH until the Mac proves it's paired.
+  // Over Wi-Fi, nothing but HELLO / HI / AUTH until the handshake is done,
+  // and after it every line must carry a valid tag.
+  if (src == Source::Net && net_authed_ && !check_tag(line)) {
+    copy_reply(reply, "ERR AUTH");
+    return;
+  }
   bool net_locked = src == Source::Net && !net_authed_;
-  if (net_locked && !starts_with_word(line, "HELLO") && !starts_with_word(line, "AUTH")) {
+  if (net_locked && !starts_with_word(line, "HELLO") && !starts_with_word(line, "HI") &&
+      !starts_with_word(line, "AUTH")) {
     copy_reply(reply, has_key_ ? "ERR AUTH" : "ERR NOKEY");
     return;
   }
@@ -167,22 +173,32 @@ void Device::handle_line(Source src, char* line, uint32_t now_ms, char* reply) {
   const char* verb = tok[0];
   auto is = [&](const char* v) { return std::strcmp(verb, v) == 0; };
 
-  if (is("AUTH")) {  // AUTH -> challenge; AUTH <proof> -> trusted
+  if (is("HI") || is("AUTH")) {
     if (src == Source::Usb) return copy_reply(reply, "OK AUTH");  // USB needs no proof
     if (!has_key_) return copy_reply(reply, "ERR NOKEY");
-    if (n == 1) {
-      if (!nonce_valid_) return copy_reply(reply, "ERR AUTH");
+    if (net_authed_) return copy_reply(reply, "ERR AUTH");
+    if (is("HI")) {  // the robot proves itself first
+      if (hi_done_ || n != 2 || !from_hex(tok[1], nm_, kNonceLen)) return copy_reply(reply, "ERR AUTH");
+      hi_done_ = true;
+      uint8_t proof[kProofLen];
+      robot_proof(key_, nm_, nr_, proof);
       char buf[kMaxReply];
-      std::strcpy(buf, "OK NONCE ");
-      to_hex(nonce_, kNonceLen, buf + 9);
+      std::strcpy(buf, "OK HI ");
+      to_hex(nr_, kNonceLen, buf + 6);
+      buf[6 + 2 * kNonceLen] = ' ';
+      to_hex(proof, kProofLen, buf + 7 + 2 * kNonceLen);
       return copy_reply(reply, buf);
     }
     uint8_t got[kProofLen], want[kProofLen];
-    bool ok = n == 2 && nonce_valid_ && from_hex(tok[1], got, kProofLen);
-    nonce_valid_ = false;  // one try per connection, right or wrong
+    bool ok = n == 2 && hi_done_ && !auth_tried_ && from_hex(tok[1], got, kProofLen);
+    auth_tried_ = true;  // one try per connection, right or wrong
     if (ok) {
-      auth_proof(key_, nonce_, want);
+      mac_proof(key_, nm_, nr_, want);
       ok = same_bytes(got, want, kProofLen);
+    }
+    if (ok) {
+      session_key(key_, nm_, nr_, ks_);
+      counter_ = 0;
     }
     net_authed_ = ok;
     return copy_reply(reply, ok ? "OK AUTH" : "ERR AUTH");
@@ -304,9 +320,22 @@ void Device::set_key(const uint8_t* key) {
 
 void Device::begin_net_session(const uint8_t nonce[kNonceLen]) {
   in_[1] = LineBuf{};
-  std::memcpy(nonce_, nonce, kNonceLen);
-  nonce_valid_ = true;
-  net_authed_ = false;
+  std::memcpy(nr_, nonce, kNonceLen);
+  hi_done_ = auth_tried_ = net_authed_ = false;
+  counter_ = 0;
+}
+
+bool Device::check_tag(char* line) {
+  char* mark = std::strrchr(line, '#');
+  if (!mark || mark == line || mark[-1] != ' ') return false;
+  uint8_t got[kTagLen], want[kTagLen];
+  if (!from_hex(mark + 1, got, kTagLen)) return false;
+  size_t len = static_cast<size_t>(mark - 1 - line);
+  line_tag(ks_, counter_, line, len, want);
+  if (!same_bytes(got, want, kTagLen)) return false;
+  ++counter_;
+  mark[-1] = '\0';
+  return true;
 }
 
 bool Device::take_new_key(uint8_t out[kKeyLen]) {

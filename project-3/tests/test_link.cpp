@@ -49,7 +49,8 @@ class FakeCore {
     for (ssize_t i = 0; i < n; ++i) {
       char c = buf[i];
       if (c == '\n') {
-        lines_.push_back(cur_);
+        size_t tag = cur_.rfind(" #");  // log the command without its Wi-Fi tag
+        lines_.push_back(tag == std::string::npos ? cur_ : cur_.substr(0, tag));
         bool fail = fail_ev_ && cur_.rfind("EV", 0) == 0;
         cur_.clear();
         if (fail) {
@@ -369,14 +370,18 @@ void test_refused_setting_keeps_connection() {
 }
 
 void test_pairing_over_usb_then_wifi() {
-  // Over USB the app hands the robot its key.
+  // Over USB, "set on robot" stores this Mac's key (from the passphrase).
   FakeUsb usb;
   rma3::Link a([&] { return std::vector<std::string>{usb.path()}; });
   a.set_key(kMacKey);
   a.start();
   CHECK(eventually([&] { return connected(a); }, 2s));
   uint8_t got[16];
+  std::this_thread::sleep_for(100ms);
+  CHECK(!usb.has_key(got));  // never automatic: another Mac's passphrase isn't overwritten
+  a.set_key_on_robot();
   CHECK(eventually([&] { return usb.has_key(got); }, 1s) && std::memcmp(got, kMacKey, 16) == 0);
+  CHECK(eventually([&] { return a.snapshot().key_result.find("now uses") != std::string::npos; }, 1s));
   a.stop();
 
   // A robot on Wi-Fi paired with another Mac: not connected, and told why.

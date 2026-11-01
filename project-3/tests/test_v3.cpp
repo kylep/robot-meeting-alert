@@ -18,7 +18,13 @@ using rma3::Source;
 
 namespace {
 
-std::string send(Device& d, const std::string& s, uint32_t now = 0, Source src = Source::Usb) {
+rma3::NetSession g_net;  // the test's "Mac" on Wi-Fi: signs lines once trusted
+
+std::string send(Device& d, const std::string& text, uint32_t now = 0, Source src = Source::Usb) {
+  std::string s = text;
+  if (src == Source::Net && g_net.active() && !s.empty() && s.back() == '\n') {
+    s = g_net.sign(s.substr(0, s.size() - 1)) + "\n";
+  }
   char out[Device::kMaxReply];
   std::string last;
   for (char c : s) {
@@ -27,22 +33,30 @@ std::string send(Device& d, const std::string& s, uint32_t now = 0, Source src =
   return last;
 }
 
+// Bytes onto the network side exactly as given (no signing).
+std::string raw_net(Device& d, const std::string& s) {
+  char out[Device::kMaxReply];
+  std::string last;
+  for (char c : s) {
+    if (d.feed(Source::Net, c, 0, out)) last = out;
+  }
+  return last;
+}
+
 bool ok(const std::string& r) { return r.rfind("OK ", 0) == 0; }
 
 const uint8_t kTestKey[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
-// A trusted network session, as the Mac does it: challenge, then proof.
+// A trusted network session, as the Mac does it: HI, check the robot, AUTH.
 void pair_net(Device& d) {
   d.set_key(kTestKey);
   uint8_t nonce[16] = {9, 9, 9};
   d.begin_net_session(nonce);
-  std::string ch = send(d, "AUTH\n", 0, Source::Net);
-  uint8_t n[16], proof[16];
-  char hex[33];
-  CHECK(ch.rfind("OK NONCE ", 0) == 0 && rma3::from_hex(ch.c_str() + 9, n, 16));
-  rma3::auth_proof(kTestKey, n, proof);
-  rma3::to_hex(proof, 16, hex);
-  CHECK_STR(send(d, std::string("AUTH ") + hex + "\n", 0, Source::Net), "OK AUTH");
+  g_net = rma3::NetSession{};
+  std::string reply = send(d, g_net.hello() + "\n", 0, Source::Net), auth;
+  CHECK(g_net.answer(kTestKey, reply, &auth));
+  CHECK_STR(send(d, auth + "\n", 0, Source::Net), "OK AUTH");
+  g_net.start();
 }
 
 constexpr uint32_t kS = 1000;  // ms per second
@@ -125,11 +139,12 @@ void test_wifi_commands_usb_only() {
 void test_sources_never_mix() {
   Device d;
   pair_net(d);
-  CHECK_STR(send(d, "WIFIC", 0, Source::Net), "");
+  std::string signed_clr = g_net.sign("WIFICLR") + "\n";
+  CHECK_STR(raw_net(d, signed_clr.substr(0, 5)), "");
   CHECK_STR(send(d, "\nHELLO\n", 0, Source::Usb), "RMA 3 0.3.0");
   rma3::WifiCreds c;
   CHECK(d.take_wifi_action(&c) == rma3::WifiAction::None);
-  CHECK_STR(send(d, "LR\n", 0, Source::Net), "ERR USBONLY");  // finished on its own source
+  CHECK_STR(raw_net(d, signed_clr.substr(5)), "ERR USBONLY");  // finished on its own source
   CHECK(d.take_wifi_action(&c) == rma3::WifiAction::None);
   // Interleaved bytes from both sources each parse on their own.
   char out[Device::kMaxReply];
@@ -323,19 +338,32 @@ void test_hashes() {
                     std::strlen(msg), out);
   rma3::to_hex(out, 32, hex);
   CHECK_STR(hex, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+  // PBKDF2-HMAC-SHA256 (RFC 7914 section 11 / common vectors).
+  rma3::pbkdf2_sha256("password", 8, reinterpret_cast<const uint8_t*>("salt"), 4, 1, out, 32);
+  rma3::to_hex(out, 32, hex);
+  CHECK_STR(hex, "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b");
+  rma3::pbkdf2_sha256("password", 8, reinterpret_cast<const uint8_t*>("salt"), 4, 4096, out, 32);
+  rma3::to_hex(out, 32, hex);
+  CHECK_STR(hex, "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a");
+  uint8_t k1[16], k2[16], k3[16];
+  rma3::passphrase_key("correct horse battery", k1);
+  rma3::passphrase_key("correct horse battery", k2);
+  rma3::passphrase_key("correct horse batterz", k3);
+  CHECK(std::memcmp(k1, k2, 16) == 0 && std::memcmp(k1, k3, 16) != 0);  // same phrase, same key
   uint8_t b[2];
   CHECK(!rma3::from_hex("zz00", b, 2) && !rma3::from_hex("abc", b, 2) && rma3::from_hex("aB01", b, 2));
   CHECK(b[0] == 0xab && b[1] == 0x01);
 }
 
 void test_pairing() {
+  g_net = rma3::NetSession{};
   Device d;
   uint8_t nonce[16] = {7};
   d.begin_net_session(nonce);
   // Never paired: the network gets nothing but HELLO.
   CHECK_STR(send(d, "HELLO\n", 0, Source::Net), "RMA 3 0.3.0");
   CHECK_STR(send(d, "STATE\n", 0, Source::Net), "ERR NOKEY");
-  CHECK_STR(send(d, "AUTH\n", 0, Source::Net), "ERR NOKEY");
+  CHECK_STR(send(d, g_net.hello() + "\n", 0, Source::Net), "ERR NOKEY");
   CHECK_STR(send(d, "LIGHT 0\n", 0, Source::Net), "ERR NOKEY");
   CHECK(d.settings().light);
   // Pair over USB (only).
@@ -348,30 +376,60 @@ void test_pairing() {
   CHECK(ok(send(d, "KEY 0102030405060708090A0B0C0D0E0F10\n")));  // same key: no flash write
   CHECK(!d.take_new_key(saved));
   CHECK_STR(send(d, "STATE\n", 0, Source::Net), "ERR AUTH");
-  // Wrong proof: refused, and no second try on this connection.
-  CHECK(send(d, "AUTH\n", 0, Source::Net).rfind("OK NONCE 07", 0) == 0);
+
+  // A Mac with the wrong key: the robot's proof doesn't check out, so the
+  // Mac sends nothing back (an impostor robot would learn nothing to relay).
+  uint8_t wrong[16] = {0xEE};
+  rma3::NetSession other;
+  std::string reply = send(d, other.hello() + "\n", 0, Source::Net), auth;
+  CHECK(reply.rfind("OK HI ", 0) == 0);
+  CHECK(!other.answer(wrong, reply, &auth));
+  // A guessed proof is refused, and there's no second try on this connection.
   CHECK_STR(send(d, "AUTH 00000000000000000000000000000000\n", 0, Source::Net), "ERR AUTH");
-  uint8_t proof[16];
-  char hex[33];
-  rma3::auth_proof(kTestKey, nonce, proof);
-  rma3::to_hex(proof, 16, hex);
-  CHECK_STR(send(d, std::string("AUTH ") + hex + "\n", 0, Source::Net), "ERR AUTH");
-  CHECK_STR(send(d, "AUTH\n", 0, Source::Net), "ERR AUTH");
-  // New connection, new challenge: the old proof is useless (no replay).
+  CHECK_STR(send(d, "AUTH 00000000000000000000000000000000\n", 0, Source::Net), "ERR AUTH");
+  CHECK_STR(send(d, other.hello() + "\n", 0, Source::Net), "ERR AUTH");  // one HI per connection
+
+  // New connection with the right key: trusted.
   uint8_t nonce2[16] = {8};
   d.begin_net_session(nonce2);
-  CHECK_STR(send(d, std::string("AUTH ") + hex + "\n", 0, Source::Net), "ERR AUTH");
-  d.begin_net_session(nonce2);
-  rma3::auth_proof(kTestKey, nonce2, proof);
-  rma3::to_hex(proof, 16, hex);
-  CHECK_STR(send(d, std::string("AUTH ") + hex + "\n", 0, Source::Net), "OK AUTH");
+  g_net = rma3::NetSession{};
+  reply = send(d, g_net.hello() + "\n", 0, Source::Net);
+  CHECK(g_net.answer(kTestKey, reply, &auth));
+  std::string good_auth = auth;
+  CHECK_STR(send(d, auth + "\n", 0, Source::Net), "OK AUTH");
+  g_net.start();
   CHECK(ok(send(d, "LIGHT 0\n", 0, Source::Net)));
+  // Untagged, altered or replayed lines are refused.
+  std::string tagged = g_net.sign("LIGHT 1");
+  char out[Device::kMaxReply];
+  auto raw = [&](const std::string& line) {
+    std::string last;
+    for (char c : line + "\n") {
+      if (d.feed(Source::Net, c, 0, out)) last = out;
+    }
+    return last;
+  };
+  CHECK_STR(raw("LIGHT 1"), "ERR AUTH");
+  std::string altered = tagged;
+  altered[6] = '0';  // "LIGHT 0" with LIGHT 1's tag
+  CHECK_STR(raw(altered), "ERR AUTH");
+  CHECK(ok(raw(tagged)));
+  CHECK(d.settings().light);
+  CHECK_STR(raw(tagged), "ERR AUTH");  // replay: the counter has moved on
+  CHECK(ok(send(d, "STATE\n", 0, Source::Net)));  // the real Mac carries on
   CHECK_STR(send(d, "KEY 0102030405060708090a0b0c0d0e0f10\n", 0, Source::Net), "ERR USBONLY");
-  // Re-pairing (a different Mac plugs in) locks out the old one.
+  // An old handshake can't be replayed on a new connection.
+  uint8_t nonce3[16] = {9};
+  d.begin_net_session(nonce3);
+  g_net = rma3::NetSession{};
+  CHECK_STR(send(d, good_auth + "\n", 0, Source::Net), "ERR AUTH");
+  // Changing the key (USB) locks out the session that used the old one.
+  pair_net(d);
   CHECK(ok(send(d, "KEY ffffffffffffffffffffffffffffffff\n")));
   CHECK_STR(send(d, "STATE\n", 0, Source::Net), "ERR AUTH");
   // USB never needs a proof.
   CHECK(ok(send(d, "STATE\n")));
+  g_net = rma3::NetSession{};
 }
 
 void test_wifi_supervisor() {

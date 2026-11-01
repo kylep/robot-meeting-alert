@@ -1,8 +1,9 @@
-// This Mac's pairing key for the robot: 16 random bytes in
+// This Mac's copy of the robot key, made from the robot passphrase (never
+// the passphrase itself): 16 bytes in
 // ~/Library/Application Support/RobotMeetingAlert/pairing.key (mode 0600),
-// shared by the app and rmactl. Plugging the robot in with USB while the app
-// runs gives the robot this key; over Wi-Fi the robot then only obeys a Mac
-// that can prove it holds the same key.
+// shared by the app and rmactl. Any Mac where the same passphrase is typed
+// gets the same key and can control the robot over Wi-Fi. Setting or changing
+// the passphrase on the robot needs USB.
 #pragma once
 
 #include <cstdint>
@@ -11,9 +12,7 @@
 namespace rma {
 
 std::string pairing_key_path();
-// Loads the key, creating a new random one if there is none yet.
-bool load_or_create_pairing_key(uint8_t key[16]);
-// Loads only (rmactl): false if this Mac was never paired.
-bool load_pairing_key(uint8_t key[16]);
+bool load_pairing_key(uint8_t key[16]);  // false if no passphrase saved yet
+bool save_pairing_key(const uint8_t key[16]);
 
 }  // namespace rma

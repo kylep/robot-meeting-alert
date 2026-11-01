@@ -40,7 +40,7 @@ enum class WifiAction : uint8_t { None, Save, Clear };
 class Device {
  public:
   static constexpr size_t kMaxLine = 96;
-  static constexpr size_t kMaxReply = 48;
+  static constexpr size_t kMaxReply = 80;  // "OK HI <nr> <proof>" = 71
 
   // White balance: red is far brighter than green/blue at the same current.
   static constexpr uint8_t kDefaultBalance[3] = {77, 255, 255};
@@ -107,9 +107,14 @@ class Device {
   uint8_t key_[kKeyLen] = {};
   bool has_key_ = false;
   bool key_changed_ = false;
-  uint8_t nonce_[kNonceLen] = {};
-  bool nonce_valid_ = false;  // one AUTH attempt per connection
+  uint8_t nr_[kNonceLen] = {};  // this connection's robot nonce
+  uint8_t nm_[kNonceLen] = {};  // the Mac's nonce (from HI)
+  bool hi_done_ = false;        // one HI per connection
+  bool auth_tried_ = false;     // one AUTH per connection
   bool net_authed_ = false;
+  uint8_t ks_[kKeyLen] = {};    // session key for line tags
+  uint32_t counter_ = 0;        // next expected tag counter
+  bool check_tag(char* line);   // strips a valid " #tag"; false if missing/wrong
 };
 
 // Exposed for tests: perceptual curves.

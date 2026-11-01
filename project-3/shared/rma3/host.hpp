@@ -44,6 +44,25 @@ uint16_t meeting_id(const std::string& event_id, double start);
 // Accepts exactly "OK L<0|1> C<RRGGBB> S<0-10> M<0-3> K<0-100> Z<0|1> T<0|1> A<0-3> W<0-3>".
 bool parse_state(std::string_view line, State* out);
 
+// The Mac's side of the Wi-Fi handshake and per-line tags (see auth.hpp).
+class NetSession {
+ public:
+  // "HI <nm>" with a fresh random nonce. Starts a new handshake.
+  std::string hello();
+  // Checks the robot's "OK HI <nr> <proof>". Only if the robot proved it
+  // holds the key does this return true and fill "AUTH <proof>" to send.
+  bool answer(const uint8_t key[16], const std::string& reply, std::string* auth_line);
+  // After "OK AUTH": every line gets " #<tag>" (counter advances per line).
+  void start() { active_ = true; }
+  std::string sign(const std::string& line);
+  bool active() const { return active_; }
+
+ private:
+  uint8_t key_[16] = {}, nm_[16] = {}, nr_[16] = {}, ks_[16] = {};
+  uint32_t counter_ = 0;
+  bool active_ = false;
+};
+
 // Accepts "OK NET W<0-3> <ip or ->".
 bool parse_net(std::string_view line, int* status, std::string* ip);
 

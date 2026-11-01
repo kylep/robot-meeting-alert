@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <fstream>
 #include <map>
@@ -24,6 +25,7 @@
 #include "imgui_impl_sdlrenderer3.h"
 #include "link.hpp"
 #include "pairing.hpp"
+#include "rma3/auth.hpp"
 
 namespace {
 
@@ -197,7 +199,9 @@ int main(int, char**) {
   finder.set_manual(host_buf);
   rma3::Link link([&] { return finder.candidates(); });
   uint8_t pairing_key[16];
-  if (rma::load_or_create_pairing_key(pairing_key)) link.set_key(pairing_key);
+  bool have_passphrase = rma::load_pairing_key(pairing_key);
+  if (have_passphrase) link.set_key(pairing_key);
+  char passphrase[128] = {};
   link.start();
 
   // Calendar source (Settings tab). Chosen calendars are remembered per source.
@@ -284,7 +288,9 @@ int main(int, char**) {
       ImGui::TextUnformatted("USB port busy - quit rmactl or other serial apps");
     } else if (snap.not_paired) {
       StatusDot(IM_COL32(240, 180, 60, 255));
-      ImGui::TextUnformatted("Found the robot, but it isn't paired with this Mac. Plug it in with USB once.");
+      ImGui::TextUnformatted(have_passphrase
+                                 ? "Found the robot, but it didn't accept this Mac's passphrase (see Settings)."
+                                 : "Found the robot. Type its passphrase in Settings to control it.");
     } else {
       StatusDot(IM_COL32(130, 130, 130, 255));
       ImGui::TextUnformatted("Looking for the robot (Wi-Fi or USB)...");
@@ -465,6 +471,35 @@ int main(int, char**) {
       ImGui::PushTextWrapPos(0.0f);
       ImGui::TextDisabled("%s", cal->help());
       ImGui::PopTextWrapPos();
+      Section("ROBOT PASSPHRASE");
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled(
+          "Any Mac with this passphrase can control the robot over Wi-Fi. Type the same one on each Mac. "
+          "It never crosses the network. Changing it on the robot needs USB.");
+      ImGui::PopTextWrapPos();
+      ImGui::SetNextItemWidth(260.0f * scale);
+      ImGui::InputTextWithHint("##pass", have_passphrase ? "saved (type to change)" : "e.g. four random words",
+                               passphrase, sizeof passphrase, ImGuiInputTextFlags_Password);
+      bool usb_now = connected && !snap.over_wifi;
+      bool long_enough = std::strlen(passphrase) >= 8;
+      ImGui::BeginDisabled(!long_enough);
+      if (ImGui::Button(usb_now ? "Save, and set on robot" : "Save on this Mac")) {
+        uint8_t k[16];
+        rma3::passphrase_key(passphrase, k);  // ~0.1 s, deliberately slow
+        std::fill(std::begin(passphrase), std::end(passphrase), '\0');
+        if (rma::save_pairing_key(k)) {
+          have_passphrase = true;
+          link.set_key(k);
+          if (usb_now) link.set_key_on_robot();
+        }
+      }
+      ImGui::EndDisabled();
+      if (!long_enough && passphrase[0]) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("at least 8 characters");
+      }
+      if (!snap.key_result.empty()) ImGui::TextWrapped("%s", snap.key_result.c_str());
+
       Section("WI-FI SETUP");
       bool usb = connected && !snap.over_wifi;
       ImGui::TextWrapped(usb ? "Type your Wi-Fi details; they are saved on the robot (not in this app)."

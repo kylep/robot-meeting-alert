@@ -46,6 +46,7 @@ struct LinkSnapshot {
   std::string schedule_error;
   std::string wifi_result;  // outcome of the last Wi-Fi setup
   bool not_paired = false;  // the robot on Wi-Fi didn't accept this Mac
+  std::string key_result;   // outcome of the last set_key_on_robot
 };
 
 class Link {
@@ -77,8 +78,10 @@ class Link {
   // Save Wi-Fi settings on the robot (works over USB only).
   void wifi_setup(const std::string& ssid, const std::string& pass);
   void wifi_clear();
-  // This Mac's pairing key: given to the robot over USB, proven over Wi-Fi.
+  // This Mac's key (from the robot passphrase), proven over Wi-Fi.
   void set_key(const uint8_t key[rma3::kKeyLen]);
+  // Store this Mac's key on the robot: sets the robot's passphrase (USB only).
+  void set_key_on_robot();
   LinkSnapshot snapshot() const;
   void stop();
 
@@ -92,7 +95,7 @@ class Link {
   bool push_schedule();                   // false = connection dead
   bool do_wifi();                         // false = connection dead
   bool prove_key();                       // Wi-Fi: answer the robot's challenge
-  void give_key();                        // USB: pair the robot with this Mac
+  bool give_key();                        // USB: set the robot's key; false = dead
   bool wait_or_stop(Clock::duration d);
 
   Candidates candidates_;
@@ -112,11 +115,13 @@ class Link {
   std::string wifi_ssid_, wifi_pass_;
   uint8_t key_[rma3::kKeyLen] = {};
   bool has_key_ = false;
+  bool key_pending_ = false;
   LinkSnapshot snap_;
 
   // Worker only.
   State reported_;
   bool over_tcp_ = false;
+  NetSession session_;  // Wi-Fi handshake + line tags
   std::string rejected_;  // last setting the robot refused
   Clock::time_point last_cmd_{}, last_net_{}, last_push_{};
   uint64_t pushed_gen_ = 0;
