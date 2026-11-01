@@ -176,7 +176,13 @@ connection can't replace a trusted client that sent data in the last 5 s; an
 untrusted one is dropped after 5 s. Crypto in `shared/rma3/auth.cpp`, tested
 against FIPS 180, RFC 4231 and PBKDF2 vectors. Security review found the
 first version (robot challenge only) relayable by a fake robot; fixed by the
-mutual handshake and line tags.
+mutual handshake and line tags. A second finding: any LAN peer can ask for a
+robot proof (`HI`) and test passphrase guesses offline (as can anyone who
+records a real handshake). Mitigations: the app's Generate button (20 chars
+from 31 symbols, about 99 bits) is the recommended path; `HI` is limited to
+one per second (`ERR BUSY`); PBKDF2 200k rounds. A PAKE (SPAKE2/CPace) was
+considered and rejected as too heavy for the Pico for this threat. Changing
+the key stays USB-only (sending a new key over Wi-Fi would need encryption).
 
 State line adds mode, stage and Wi-Fi: `OK L1 CFF8000 S2 M1 K57 Z1 T1 A3 W2`
 (T mode, A stage 0 none / 1 free / 2 soon / 3 meeting, W Wi-Fi status).

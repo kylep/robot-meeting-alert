@@ -110,6 +110,8 @@ class Device {
   uint8_t nr_[kNonceLen] = {};  // this connection's robot nonce
   uint8_t nm_[kNonceLen] = {};  // the Mac's nonce (from HI)
   bool hi_done_ = false;        // one HI per connection
+  bool hi_seen_ = false;
+  uint32_t last_hi_ms_ = 0;     // at most one handshake per second
   bool auth_tried_ = false;     // one AUTH per connection
   bool net_authed_ = false;
   uint8_t ks_[kKeyLen] = {};    // session key for line tags

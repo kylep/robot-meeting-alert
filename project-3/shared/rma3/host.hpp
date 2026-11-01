@@ -63,6 +63,11 @@ class NetSession {
   bool active_ = false;
 };
 
+// A strong random passphrase for the robot, e.g. "k7mq-2xpr-9dfa-h3zw-tn4c":
+// 20 characters from 32 easy-to-read ones (about 100 bits), so guessing it
+// offline from recorded Wi-Fi traffic is hopeless.
+std::string generate_passphrase();
+
 // Accepts "OK NET W<0-3> <ip or ->".
 bool parse_net(std::string_view line, int* status, std::string* ip);
 

@@ -53,8 +53,9 @@ make run        # opens the app
    and an address means it's on Wi-Fi. The Pico's own little LED blinks while
    joining and stays on once connected.
 3. **Give it a passphrase:** with the robot still on USB, open the app
-   (`make run`), go to Settings → Robot passphrase, type one (8+ characters;
-   a few random words is good) and click **Save, and set on robot**. Or run
+   (`make run`), go to Settings → Robot passphrase, click **Generate**, write the
+   passphrase down (you'll type it on the work laptop), and click
+   **Save, and set on robot**. Or run
    `build/mac/rmactl pair`. Over Wi-Fi the robot only obeys a Mac that knows
    the passphrase (see Security below).
 4. Unplug it from the Mac and power it from any USB phone charger.
@@ -150,8 +151,16 @@ Security notes:
   can't send, change or replay commands, or kick off an app that's in use.
   The passphrase itself never crosses the network. Setting or changing it
   on the robot needs USB.
-- Pick a passphrase that isn't guessable (a few random words): someone who
-  records the Wi-Fi traffic could try guesses offline.
+- **Use a generated passphrase** (never a real password). Someone on your
+  Wi-Fi who records the handshake (or asks the robot for one; it answers at
+  most once a second) can try guessing a passphrase offline with no lockout.
+  A made-up one can be guessed; a generated one (about 100 bits) can't. A
+  password-safe handshake (PAKE) would remove this need but needs
+  elliptic-curve maths on the Pico; not worth it for a desk light.
+- **Changing or resetting the passphrase:** plug the robot in with USB, then
+  Settings → Robot passphrase → Generate → **Save, and set on robot**. Type
+  the new one on your other Mac. If you forget it, do the same: USB always
+  works without it.
 - Commands over Wi-Fi are signed but not encrypted, so someone on your
   network could read them (meeting times, colours).
 - Wi-Fi settings and pairing change only over USB. The Wi-Fi password and

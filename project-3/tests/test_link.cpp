@@ -401,8 +401,8 @@ void test_pairing_over_usb_then_wifi() {
   rma3::Link c([&] { return std::vector<std::string>{wifi.target()}; }, fake_now);
   c.set_key(kMacKey);
   c.start();
-  CHECK(eventually([&] { return connected(c); }, 3s));
-  CHECK(wifi.count("STATE") >= 1);
+  CHECK(eventually([&] { return connected(c); }, 5s));  // may first hit the 1/s handshake limit
+  CHECK(eventually([&] { return wifi.count("STATE") >= 1; }, 1s));
 }
 
 void test_wifi_setup_over_usb() {

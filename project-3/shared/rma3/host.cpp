@@ -122,6 +122,17 @@ std::vector<Pushed> pick_meetings(double now, const std::vector<CalEvent>& event
   return out;
 }
 
+std::string generate_passphrase() {
+  static const char kChars[] = "abcdefghjkmnpqrstuvwxyz23456789";  // no 0/o, 1/l/i
+  constexpr uint32_t kN = sizeof kChars - 1;  // 31
+  std::string out;
+  for (int i = 0; i < 20; ++i) {
+    if (i && i % 4 == 0) out += '-';
+    out += kChars[arc4random_uniform(kN)];
+  }
+  return out;
+}
+
 std::string NetSession::hello() {
   active_ = false;
   counter_ = 0;

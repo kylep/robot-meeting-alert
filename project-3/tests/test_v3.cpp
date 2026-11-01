@@ -389,11 +389,15 @@ void test_pairing() {
   CHECK_STR(send(d, "AUTH 00000000000000000000000000000000\n", 0, Source::Net), "ERR AUTH");
   CHECK_STR(send(d, other.hello() + "\n", 0, Source::Net), "ERR AUTH");  // one HI per connection
 
-  // New connection with the right key: trusted.
+  // Handshakes are rate-limited: one per second.
   uint8_t nonce2[16] = {8};
   d.begin_net_session(nonce2);
   g_net = rma3::NetSession{};
-  reply = send(d, g_net.hello() + "\n", 0, Source::Net);
+  CHECK_STR(send(d, g_net.hello() + "\n", 500, Source::Net), "ERR BUSY");
+  // New connection with the right key, a second later: trusted.
+  d.begin_net_session(nonce2);
+  g_net = rma3::NetSession{};
+  reply = send(d, g_net.hello() + "\n", 1000, Source::Net);
   CHECK(g_net.answer(kTestKey, reply, &auth));
   std::string good_auth = auth;
   CHECK_STR(send(d, auth + "\n", 0, Source::Net), "OK AUTH");

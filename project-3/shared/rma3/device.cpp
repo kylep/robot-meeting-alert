@@ -179,6 +179,11 @@ void Device::handle_line(Source src, char* line, uint32_t now_ms, char* reply) {
     if (net_authed_) return copy_reply(reply, "ERR AUTH");
     if (is("HI")) {  // the robot proves itself first
       if (hi_done_ || n != 2 || !from_hex(tok[1], nm_, kNonceLen)) return copy_reply(reply, "ERR AUTH");
+      // Each answer lets someone test passphrase guesses offline, so hand
+      // them out slowly (the real fix is a strong passphrase; see README).
+      if (hi_seen_ && now_ms - last_hi_ms_ < 1000) return copy_reply(reply, "ERR BUSY");
+      hi_seen_ = true;
+      last_hi_ms_ = now_ms;
       hi_done_ = true;
       uint8_t proof[kProofLen];
       robot_proof(key_, nm_, nr_, proof);

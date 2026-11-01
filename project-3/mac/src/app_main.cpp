@@ -202,6 +202,7 @@ int main(int, char**) {
   bool have_passphrase = rma::load_pairing_key(pairing_key);
   if (have_passphrase) link.set_key(pairing_key);
   char passphrase[128] = {};
+  bool show_pass = false;
   link.start();
 
   // Calendar source (Settings tab). Chosen calendars are remembered per source.
@@ -478,8 +479,20 @@ int main(int, char**) {
           "It never crosses the network. Changing it on the robot needs USB.");
       ImGui::PopTextWrapPos();
       ImGui::SetNextItemWidth(260.0f * scale);
-      ImGui::InputTextWithHint("##pass", have_passphrase ? "saved (type to change)" : "e.g. four random words",
-                               passphrase, sizeof passphrase, ImGuiInputTextFlags_Password);
+      ImGui::InputTextWithHint("##pass", have_passphrase ? "saved (type to change)" : "click Generate",
+                               passphrase, sizeof passphrase, show_pass ? 0 : ImGuiInputTextFlags_Password);
+      ImGui::SameLine();
+      if (ImGui::Button("Generate")) {
+        std::snprintf(passphrase, sizeof passphrase, "%s", rma3::generate_passphrase().c_str());
+        show_pass = true;  // write it down for the other Mac
+      }
+      ImGui::SameLine();
+      ImGui::Checkbox("Show", &show_pass);
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled(
+          "Use Generate: someone who records your Wi-Fi traffic could try guessing a made-up passphrase "
+          "offline, but not a generated one. Write it down to type on your other Mac.");
+      ImGui::PopTextWrapPos();
       bool usb_now = connected && !snap.over_wifi;
       bool long_enough = std::strlen(passphrase) >= 8;
       ImGui::BeginDisabled(!long_enough);
@@ -487,6 +500,7 @@ int main(int, char**) {
         uint8_t k[16];
         rma3::passphrase_key(passphrase, k);  // ~0.1 s, deliberately slow
         std::fill(std::begin(passphrase), std::end(passphrase), '\0');
+        show_pass = false;
         if (rma::save_pairing_key(k)) {
           have_passphrase = true;
           link.set_key(k);
