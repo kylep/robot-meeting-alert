@@ -121,6 +121,9 @@ int main(int argc, char** argv) {
     cmd = "NET";
   } else if (v == "wificlr" && a.size() == 1) {
     cmd = "WIFICLR";
+  } else if ((v == "wifi" || v == "wificlr") && !host.empty()) {
+    std::fprintf(stderr, "rmactl: %s works over USB only (the password must not cross the network)\n", v.c_str());
+    return 64;
   } else if (v == "wifi" && a.size() == 1) {
     std::string ssid = prompt("Wi-Fi name: ", false);
     std::string pass = prompt("Wi-Fi password (empty for an open network): ", true);

@@ -160,7 +160,12 @@ bool Link::try_connect() {
       snap_.fw = fw;
       snap_.wifi_result = wifi_result;
       events_.clear();  // never replay stale clicks after a reconnect
+      wifi_pending_ = false;  // nor a Wi-Fi setup typed for an earlier connection
+      wifi_ssid_.clear();
+      wifi_pass_.assign(wifi_pass_.size(), '\0');
+      wifi_pass_.clear();
     }
+    over_tcp_ = tcp;
     last_net_ = last_push_ = Clock::time_point{};
     pushed_gen_ = 0;
     if (command("STATE") != Reply::Ok) {  // learn the device's settings; reconcile pushes ours
@@ -242,6 +247,13 @@ bool Link::do_wifi() {
     ssid.swap(wifi_ssid_);
     pass.swap(wifi_pass_);
     clear = wifi_clear_;
+  }
+  // Never put the password on the network: Wi-Fi setup only travels over USB.
+  if (over_tcp_) {
+    pass.assign(pass.size(), '\0');
+    std::lock_guard<std::mutex> lock(mu_);
+    snap_.wifi_result = "Plug the robot in with USB to change Wi-Fi.";
+    return true;
   }
   std::string result;
   Reply r = Reply::Ok;

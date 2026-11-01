@@ -108,6 +108,7 @@ class Link {
 
   // Worker only.
   State reported_;
+  bool over_tcp_ = false;
   Clock::time_point last_cmd_{}, last_net_{}, last_push_{};
   uint64_t pushed_gen_ = 0;
 };

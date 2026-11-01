@@ -306,6 +306,8 @@ void test_wifi_schedule_push() {
   link.wifi_setup("Home", "password123");
   CHECK(eventually([&] { return link.snapshot().wifi_result.find("USB") != std::string::npos; }, 1s));
   CHECK(fake.take_wifi() == rma3::WifiAction::None);
+  CHECK(fake.count_prefix("PASS") == 0);  // the password never crossed the network
+  CHECK(fake.count_prefix("WIFI") == 0);
   CHECK(connected(link));
 }
 
