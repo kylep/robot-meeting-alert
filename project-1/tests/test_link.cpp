@@ -174,8 +174,9 @@ void test_connect_and_sync() {
   CHECK(eventually([&] { return !fake.outputs().buzz; }, 200ms));
 
   link.stop();
-  CHECK(fake.outputs().r == false && fake.outputs().b == false);  // ALLOFF on stop
-  CHECK(fake.count("ALLOFF") >= 2);
+  // ALLOFF on stop; the fake reads it on its own thread, so give it a moment.
+  CHECK(eventually([&] { return !fake.outputs().r && !fake.outputs().b; }, 500ms));
+  CHECK(eventually([&] { return fake.count("ALLOFF") >= 2; }, 500ms));
 }
 
 void test_gui_stall_releases_buzzer() {
