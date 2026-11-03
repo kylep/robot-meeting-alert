@@ -454,9 +454,9 @@ int main(int, char**) {
       }
       ImGui::EndDisabled();
       ImGui::SameLine();
-      ImGui::Checkbox("None", &lc.none);
+      ImGui::Checkbox("None##look", &lc.none);
       ImGui::SameLine();
-      if (ImGui::Button("Default")) lc = rma3::kDefaultLooks[look_sel];
+      if (ImGui::Button("Default##look")) lc = rma3::kDefaultLooks[look_sel];
       ImGui::PushTextWrapPos(0.0f);
       ImGui::TextDisabled("%s", lc.none ? "None: the light stays as it was." : kLookHints[look_sel]);
       ImGui::PopTextWrapPos();
@@ -529,9 +529,9 @@ int main(int, char**) {
     // ---- Overall levels, multiplied by the knob when it controls them
     Section("VOLUME AND BRIGHTNESS");
     ImGui::SetNextItemWidth(200.0f * scale);
-    ImGui::SliderInt("Volume", &vol_pct, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SliderInt("Volume##overall", &vol_pct, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
     ImGui::SetNextItemWidth(200.0f * scale);
-    ImGui::SliderInt("Brightness", &bright_pct, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SliderInt("Brightness##overall", &bright_pct, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
     want.cfg.volume = static_cast<uint8_t>(vol_pct);
     want.cfg.brightness = static_cast<uint8_t>(bright_pct);
     if (connected) {
