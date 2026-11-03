@@ -624,6 +624,19 @@ int main(int, char**) {
       if (ImGui::Button("Forget Wi-Fi")) link.wifi_clear();
       ImGui::EndDisabled();
       if (!snap.wifi_result.empty()) ImGui::TextWrapped("%s", snap.wifi_result.c_str());
+      if (usb) {  // live, from the robot's NET reply (polled every 5 s)
+        if (snap.net == 2) {
+          ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1), "On Wi-Fi at %s. You can unplug the USB cable now.",
+                             snap.ip.c_str());
+        } else if (snap.net == 1) {
+          ImGui::TextDisabled("Joining Wi-Fi...");
+        } else if (snap.net == 3) {
+          ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1),
+                             "Can't join Wi-Fi. Check the name and password (2.4 GHz networks only).");
+        } else {
+          ImGui::TextDisabled("No Wi-Fi saved on the robot yet.");
+        }
+      }
       Section("ROBOT ADDRESS");
       ImGui::TextDisabled("Only needed if the app doesn't find the robot by itself:");
       ImGui::SetNextItemWidth(160.0f * scale);

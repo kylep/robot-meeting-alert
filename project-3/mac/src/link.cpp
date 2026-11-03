@@ -350,7 +350,7 @@ bool Link::do_wifi() {
     r = send("WIFI " + ssid, &line);
     if (r == Reply::Ok) r = send("PASS " + pass, &line);  // the robot never echoes it
     if (r == Reply::Ok) r = send("WIFIGO", &line);
-    result = r == Reply::Ok ? "Saved. The robot is joining \"" + ssid + "\"." : "";
+    result = r == Reply::Ok ? "Saved \"" + ssid + "\" on the robot." : "";
   }
   pass.assign(pass.size(), '\0');
   if (r == Reply::Err) {
