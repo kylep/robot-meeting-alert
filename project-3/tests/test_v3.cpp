@@ -2,6 +2,7 @@
 // commands, USB-only Wi-Fi commands, the Wi-Fi supervisor and flash record,
 // and the Mac's meeting picker.
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -141,7 +142,7 @@ void test_sources_never_mix() {
   pair_net(d);
   std::string signed_clr = g_net.sign("WIFICLR") + "\n";
   CHECK_STR(raw_net(d, signed_clr.substr(0, 5)), "");
-  CHECK_STR(send(d, "\nHELLO\n", 0, Source::Usb), "RMA 3 0.3.0");
+  CHECK_STR(send(d, "\nHELLO\n", 0, Source::Usb), "RMA 3 0.4.0");
   rma3::WifiCreds c;
   CHECK(d.take_wifi_action(&c) == rma3::WifiAction::None);
   CHECK_STR(raw_net(d, signed_clr.substr(5)), "ERR USBONLY");  // finished on its own source
@@ -263,6 +264,122 @@ void test_alert_sound_rules() {
   CHECK(!prev.playing());
 }
 
+void test_config_commands() {
+  Device d;
+  CHECK_STR(send(d, "CFG\n"), "OK CFG V100 B100 W0 S1 000026 006600 FF7800 FF0000 400000");
+  for (const char* s : {"VOL 40\n", "BRIGHT 0\n", "WARN 60\n", "ONSTART 0\n", "COL 1 -\n", "COL 4 1 2 3\n"}) {
+    CHECK(ok(send(d, s)));
+  }
+  std::string cfg = send(d, "CFG\n");
+  CHECK_STR(cfg, "OK CFG V40 B0 W60 S0 000026 - FF7800 FF0000 010203");
+  for (const char* s : {"VOL 101\n", "VOL\n", "BRIGHT -1\n", "WARN 61\n", "ONSTART 2\n", "COL 5 -\n", "COL 1\n",
+                        "COL\n", "COL 1 1 2\n", "COL 1 256 0 0\n", "COL 1 - 1\n", "COL x 1 2 3\n", "CFG 1\n"}) {
+    CHECK_STR(send(d, s), "ERR BADARG");
+  }
+  CHECK_STR(send(d, "CFG\n"), cfg);  // refused lines changed nothing
+  rma3::Config c;
+  CHECK(rma3::parse_config(cfg, &c));
+  CHECK(c.volume == 40 && c.brightness == 0 && c.warn_min == 60 && !c.start_sound);
+  CHECK(c.look[1].none && !c.look[4].none && c.look[4].r == 1 && c.look[4].b == 3);
+  CHECK_STR(rma3::look_command(4, c.look[4]), "COL 4 1 2 3");
+  CHECK_STR(rma3::look_command(1, c.look[1]), "COL 1 -");
+  // The longest reply fits; short or malformed lines don't parse.
+  Device w;
+  send(w, "WARN 60\n");
+  std::string longest = send(w, "CFG\n");
+  CHECK(longest.size() < Device::kMaxReply && rma3::parse_config(longest, &c) && c.warn_min == 60);
+  CHECK(!rma3::parse_config("OK CFG V100 B100 W0 S1 000026", &c));
+  CHECK(!rma3::parse_config("OK CFG V100 B100 W0 S1 000026 006600 FF7800 FF0000 40000G", &c));
+  CHECK(!rma3::parse_config("OK L1 CFFFFFF S1 M0 K0 Z0 T1 A0 W0", &c));
+}
+
+void test_status_colours() {
+  // Defaults keep the original levels (green at 40 %).
+  Device d;
+  send(d, "BAL 255 255 255\n");
+  push(d, 0, 42, 400, 60);
+  d.tick(0, true);
+  CHECK(std::abs(d.led_level(1) - rma3::gamma16(102)) <= 1 && d.led_level(0) == 0);
+  send(d, "COL 1 0 0 255\n");  // Free in blue
+  d.tick(1, true);
+  CHECK(d.led_level(2) == 65535 && d.led_level(1) == 0);
+  // "None" for Meeting soon: the light stays as it was until the start.
+  send(d, "COL 2 -\n");
+  d.tick(200 * kS, true);
+  CHECK(d.stage() == rma3::kStageSoon);
+  CHECK(d.led_level(2) == 65535 && d.led_level(0) == 0);
+  d.tick(401 * kS, true);
+  CHECK(d.led_level(0) == 65535 && d.led_level(2) == 0);  // red at the start
+  // None at boot: dark, there's nothing to keep.
+  Device e;
+  send(e, "COL 0 -\n");
+  e.tick(0, true);
+  CHECK(e.led_level(0) == 0 && e.led_level(1) == 0 && e.led_level(2) == 0);
+  // From Manual mode onto a "none" status: the manual colour stays.
+  Device m;
+  send(m, "BAL 255 255 255\n");
+  send(m, "MODE 0\n");
+  send(m, "RGB 255 0 255\n");
+  m.tick(0, true);
+  send(m, "COL 0 -\n");
+  send(m, "MODE 1\n");
+  m.tick(10, true);
+  CHECK(m.led_level(0) == 65535 && m.led_level(2) == 65535 && m.led_level(1) == 0);
+  // Overall brightness multiplies the knob: 50 % with the knob at 80 % = 40 %.
+  Device b;
+  send(b, "BAL 255 255 255\n");
+  send(b, "COL 1 0 255 0\n");
+  send(b, "METER 1\n");
+  for (int i = 0; i < 40; ++i) b.knob_sample(60 + (4035 - 60) * 8 / 10);
+  CHECK(b.knob() == 80);
+  push(b, 0, 1, 400, 60);
+  send(b, "BRIGHT 50\n");
+  b.tick(0, true);
+  CHECK(std::abs(b.led_level(1) - rma3::gamma16(102)) <= 1);
+  send(b, "BRIGHT 0\n");
+  CHECK(b.led_level(1) == 0);
+}
+
+void test_warning_beep() {
+  // Two minutes before: one short beep, then the melody at the start.
+  Device d;
+  CHECK(ok(send(d, "WARN 2\n")));
+  push(d, 0, 42, 300, 60);
+  CHECK(run(d, 0, 179 * kS) == 0);
+  CHECK(run(d, 179 * kS, 180 * kS + 100) == 1);
+  CHECK(d.tone().hz == 2000);                     // the Beep sound
+  CHECK(run(d, 180 * kS + 100, 299 * kS) == 0);   // once
+  CHECK(run(d, 299 * kS, 301 * kS) == 1);         // melody
+  // Off by default.
+  Device off;
+  push(off, 0, 1, 300, 60);
+  CHECK(run(off, 0, 299 * kS) == 0);
+  // First seen 30 s after it was due: beeps. 90 s after: silent.
+  Device late;
+  send(late, "WARN 2\n");
+  push(late, 0, 7, 90, 60);
+  CHECK(run(late, 0, 89 * kS) == 1);
+  Device later;
+  send(later, "WARN 2\n");
+  push(later, 0, 8, 30, 60);
+  CHECK(run(later, 0, 29 * kS) == 0);
+  // Start sound off: the warning still beeps, the start is silent.
+  Device quiet;
+  send(quiet, "WARN 1\n");
+  send(quiet, "ONSTART 0\n");
+  push(quiet, 0, 9, 120, 60);
+  CHECK(run(quiet, 0, 200 * kS) == 1);
+  // A beep never cuts into another meeting's melody.
+  Device busy;
+  send(busy, "WARN 1\n");
+  CHECK(ok(send(busy, "CAL\n", 0)));
+  CHECK(ok(send(busy, "EV 1 100 200\n", 0)));
+  CHECK(ok(send(busy, "EV 2 161 300\n", 0)));  // its beep is due at 101 s, mid-melody
+  CHECK(ok(send(busy, "CALGO 900\n", 0)));
+  run(busy, 0, 101 * kS + 50);
+  CHECK(busy.playing() && busy.tone().hz != 2000);
+}
+
 void test_schedule_capacity_of_remembered_ids() {
   rma3::Schedule s;
   // 20 meetings over time; each fires once.
@@ -361,7 +478,7 @@ void test_pairing() {
   uint8_t nonce[16] = {7};
   d.begin_net_session(nonce);
   // Never paired: the network gets nothing but HELLO.
-  CHECK_STR(send(d, "HELLO\n", 0, Source::Net), "RMA 3 0.3.0");
+  CHECK_STR(send(d, "HELLO\n", 0, Source::Net), "RMA 3 0.4.0");
   CHECK_STR(send(d, "STATE\n", 0, Source::Net), "ERR NOKEY");
   CHECK_STR(send(d, g_net.hello() + "\n", 0, Source::Net), "ERR NOKEY");
   CHECK_STR(send(d, "LIGHT 0\n", 0, Source::Net), "ERR NOKEY");
@@ -523,6 +640,9 @@ int main() {
   test_stale_schedule();
   test_wraparound();
   test_alert_sound_rules();
+  test_config_commands();
+  test_status_colours();
+  test_warning_beep();
   test_schedule_capacity_of_remembered_ids();
   test_wifi_record();
   test_hashes();

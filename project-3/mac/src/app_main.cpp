@@ -5,6 +5,7 @@
 // Based on Dear ImGui's example_sdl3_sdlrenderer3.
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -30,13 +31,36 @@
 namespace {
 
 constexpr int kWidth = 880;
-constexpr int kHeight = 600;
+constexpr int kHeight = 680;
 constexpr double kLookahead = 12 * 3600;
 const char* kSounds[] = {"Off",          "Westminster chime", "Twinkle twinkle", "Ode to joy",
                          "Beep",         "Fur Elise",         "Frere Jacques",   "Mary had a little lamb",
                          "Happy birthday", "Doorbell",        "Chirp"};
 const char* kMeterModes[] = {"None", "Brightness", "Volume", "Both"};
 const char* kNet[] = {"no Wi-Fi settings", "joining Wi-Fi...", "on Wi-Fi", "can't join Wi-Fi"};
+// In rma3::Look order.
+const char* kLookNames[] = {"No calendar", "Free", "Meeting soon", "Meeting starting", "In a meeting"};
+const char* kLookHints[] = {"Before this Mac sends a calendar, or 15 min after it goes quiet.",
+                            "No meeting in the next 5 minutes.", "A meeting starts within 5 minutes (breathes).",
+                            "The first 10 seconds of a meeting.", "For the rest of a meeting."};
+
+uint8_t to_byte(float v) { return static_cast<uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); }
+
+// Settings file form of a status colour: "RRGGBB", or "-RRGGBB" for none
+// (the colour comes back if None is unticked).
+std::string look_pref(const rma3::LookColour& c) {
+  char buf[8];
+  std::snprintf(buf, sizeof buf, "%02X%02X%02X", c.r, c.g, c.b);
+  return (c.none ? "-" : "") + std::string(buf);
+}
+
+rma3::LookColour look_from_pref(const std::string& s, const rma3::LookColour& def) {
+  bool none = !s.empty() && s[0] == '-';
+  std::string hex = none ? s.substr(1) : s;
+  if (hex.size() != 6 || hex.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return def;
+  unsigned long v = std::strtoul(hex.c_str(), nullptr, 16);
+  return rma3::LookColour{none, static_cast<uint8_t>(v >> 16), static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v)};
+}
 
 double wall_now() {
   using namespace std::chrono;
@@ -88,6 +112,10 @@ struct Prefs {
     auto it = kv.find(k);
     return it == kv.end() ? def : std::atoi(it->second.c_str());
   }
+  std::string str(const std::string& k) const {
+    auto it = kv.find(k);
+    return it == kv.end() ? std::string() : it->second;
+  }
   std::set<std::string> list(const std::string& k) const {
     std::set<std::string> out;
     auto it = kv.find(k);
@@ -138,16 +166,21 @@ void Section(const char* title) {
   ImGui::Separator();
 }
 
+// A status colour at full strength, so dim ones still read as a dot.
+ImU32 Vivid(const rma3::LookColour& c) {
+  int m = std::max({c.r, c.g, c.b});
+  if (m == 0) return IM_COL32(60, 60, 60, 255);  // black: the light is off
+  return IM_COL32(c.r * 255 / m, c.g * 255 / m, c.b * 255 / m, 255);
+}
+
 // What the robot's light means right now, as reported in the state line.
-void StageLine(const rma3::State& s) {
-  struct Info { const char* text; ImU32 col; };
-  const Info info[] = {{"dim blue: no calendar from this Mac yet", IM_COL32(70, 110, 255, 255)},
-                       {"green: free", IM_COL32(60, 200, 90, 255)},
-                       {"amber: a meeting starts soon", IM_COL32(255, 150, 20, 255)},
-                       {"red: in a meeting", IM_COL32(230, 50, 50, 255)}};
-  const Info& i = info[s.stage < 4 ? s.stage : 0];
-  StatusDot(i.col);
-  ImGui::Text("Robot shows %s", i.text);
+void StageLine(const rma3::State& s, const rma3::Config& cfg) {
+  const char* text[] = {"no calendar from this Mac yet", "free", "a meeting starts soon", "in a meeting"};
+  const rma3::Look look[] = {rma3::kLookWaiting, rma3::kLookFree, rma3::kLookSoon, rma3::kLookMeeting};
+  int st = s.stage < 4 ? s.stage : 0;
+  const rma3::LookColour& c = cfg.look[look[st]];
+  StatusDot(c.none ? IM_COL32(130, 130, 130, 255) : Vivid(c));
+  ImGui::Text("Robot status: %s%s", text[st], c.none ? " (light left as it was)" : "");
 }
 
 }  // namespace
@@ -226,6 +259,15 @@ int main(int, char**) {
   want.meter = static_cast<uint8_t>(prefs.num("meter", 0));
   float color[3] = {prefs.num("r", 255) / 255.0f, prefs.num("g", 140) / 255.0f, prefs.num("b", 25) / 255.0f};
   int sound = want.sound, meter = want.meter, mode = want.mode;
+  int vol_pct = std::clamp(prefs.num("vol", 100), 0, 100);
+  int bright_pct = std::clamp(prefs.num("bright", 100), 0, 100);
+  bool warn_on = prefs.num("warn", 0) != 0;
+  int warn_min = std::clamp(prefs.num("warn_min", 5), 1, static_cast<int>(rma3::kMaxWarnMin));
+  want.cfg.start_sound = prefs.num("start_sound", 1) != 0;
+  for (int i = 0; i < rma3::kLooks; ++i) {
+    want.cfg.look[i] = look_from_pref(prefs.str("look" + std::to_string(i)), rma3::kDefaultLooks[i]);
+  }
+  int look_sel = rma3::kLookFree;
   char ssid[33] = {}, pass[64] = {};
 
   bool done = false;
@@ -283,7 +325,7 @@ int main(int, char**) {
       }
       ImGui::TextDisabled("Robot is %s%s%s", kNet[snap.net < 4 ? snap.net : 0],
                           snap.net == 2 ? " at " : "", snap.net == 2 ? snap.ip.c_str() : "");
-      StageLine(snap.reported);
+      if (snap.reported.mode == 1) StageLine(snap.reported, want.cfg);
     } else if (snap.port_busy) {
       StatusDot(IM_COL32(240, 180, 60, 255));
       ImGui::TextUnformatted("USB port busy - quit rmactl or other serial apps");
@@ -394,6 +436,30 @@ int main(int, char**) {
         ImGui::TextDisabled(now < test_event.start ? "melody in %.0f s" : "pretend meeting...",
                             test_event.start - now);
       }
+
+      // ---- Light config: the colour for each status
+      Section("LIGHT CONFIG");
+      ImGui::SetNextItemWidth(170.0f * scale);
+      ImGui::Combo("##look", &look_sel, kLookNames, rma3::kLooks);
+      rma3::LookColour& lc = want.cfg.look[look_sel];
+      ImGui::SameLine();
+      ImGui::BeginDisabled(lc.none);
+      float rgb[3] = {lc.r / 255.0f, lc.g / 255.0f, lc.b / 255.0f};
+      if (ImGui::ColorEdit3("##lookcolour", rgb,
+                            ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_PickerHueWheel |
+                                ImGuiColorEditFlags_NoAlpha)) {
+        lc.r = to_byte(rgb[0]);
+        lc.g = to_byte(rgb[1]);
+        lc.b = to_byte(rgb[2]);
+      }
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::Checkbox("None", &lc.none);
+      ImGui::SameLine();
+      if (ImGui::Button("Default")) lc = rma3::kDefaultLooks[look_sel];
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled("%s", lc.none ? "None: the light stays as it was." : kLookHints[look_sel]);
+      ImGui::PopTextWrapPos();
     }
 
     // ---- Manual colour
@@ -437,6 +503,16 @@ int main(int, char**) {
       ImGui::SameLine();
       ImGui::TextDisabled("playing...");
     }
+    if (mode == 1) {
+      ImGui::Checkbox("Play it when a meeting starts", &want.cfg.start_sound);
+      ImGui::Checkbox("Warning beep", &warn_on);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(!warn_on);
+      ImGui::SetNextItemWidth(160.0f * scale);
+      ImGui::SliderInt("##warnmin", &warn_min, 1, rma3::kMaxWarnMin, "%d min before", ImGuiSliderFlags_AlwaysClamp);
+      ImGui::EndDisabled();
+    }
+    want.cfg.warn_min = static_cast<uint8_t>(warn_on ? warn_min : 0);
 
     // ---- Knob
     Section("KNOB");
@@ -449,6 +525,23 @@ int main(int, char**) {
     char overlay[16];
     std::snprintf(overlay, sizeof overlay, connected ? "%d%%" : "--", snap.reported.knob);
     ImGui::ProgressBar(connected ? snap.reported.knob / 100.0f : 0.0f, ImVec2(-1, 0), overlay);
+
+    // ---- Overall levels, multiplied by the knob when it controls them
+    Section("VOLUME AND BRIGHTNESS");
+    ImGui::SetNextItemWidth(200.0f * scale);
+    ImGui::SliderInt("Volume", &vol_pct, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SetNextItemWidth(200.0f * scale);
+    ImGui::SliderInt("Brightness", &bright_pct, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    want.cfg.volume = static_cast<uint8_t>(vol_pct);
+    want.cfg.brightness = static_cast<uint8_t>(bright_pct);
+    if (connected) {
+      int k = snap.reported.knob;
+      int v = (meter == 2 || meter == 3) ? vol_pct * k / 100 : vol_pct;        // Volume, Both
+      int b = (meter == 1 || meter == 3) ? bright_pct * k / 100 : bright_pct;  // Brightness, Both
+      ImGui::TextDisabled("With the knob: volume %d%%, brightness %d%%", v, b);
+    } else {
+      ImGui::TextDisabled("Multiplied by the knob when it controls them.");
+    }
 
     ImGui::EndTable();
     ImGui::EndTabItem();
@@ -565,6 +658,12 @@ int main(int, char**) {
     next.kv["r"] = std::to_string(want.r);
     next.kv["g"] = std::to_string(want.g);
     next.kv["b"] = std::to_string(want.b);
+    next.kv["vol"] = std::to_string(vol_pct);
+    next.kv["bright"] = std::to_string(bright_pct);
+    next.kv["warn"] = warn_on ? "1" : "0";
+    next.kv["warn_min"] = std::to_string(warn_min);
+    next.kv["start_sound"] = want.cfg.start_sound ? "1" : "0";
+    for (int i = 0; i < rma3::kLooks; ++i) next.kv["look" + std::to_string(i)] = look_pref(want.cfg.look[i]);
     next.kv["host"] = host_buf;
     if (next.kv != prefs.kv) {
       prefs = next;

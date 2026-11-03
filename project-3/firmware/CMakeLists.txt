@@ -26,7 +26,7 @@ target_compile_options(rma3_firmware PRIVATE -Wall -Wextra)
 target_compile_definitions(rma3_firmware PRIVATE
   # Bound how long a blocked printf can stall the loop (sound timing, watchdog).
   PICO_STDIO_USB_STDOUT_TIMEOUT_US=20000
-  RMA_FW_VERSION="0.3.0"
+  RMA_FW_VERSION="0.4.0"
   CYW43_HOST_NAME="rma"
 )
 target_link_libraries(rma3_firmware pico_stdlib hardware_pwm hardware_adc hardware_watchdog

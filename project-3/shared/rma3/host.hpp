@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "config.hpp"
+
 namespace rma3 {
 
 struct State {
@@ -43,6 +45,13 @@ uint16_t meeting_id(const std::string& event_id, double start);
 
 // Accepts exactly "OK L<0|1> C<RRGGBB> S<0-10> M<0-3> K<0-100> Z<0|1> T<0|1> A<0-3> W<0-3>".
 bool parse_state(std::string_view line, State* out);
+
+// Accepts exactly "OK CFG V<0-100> B<0-100> W<0-60> S<0|1>" and five colours,
+// each "RRGGBB" or "-" (none), in Look order.
+bool parse_config(std::string_view line, Config* out);
+
+// "COL i R G B", or "COL i -" for none.
+std::string look_command(int look, const LookColour& c);
 
 // The Mac's side of the Wi-Fi handshake and per-line tags (see auth.hpp).
 class NetSession {

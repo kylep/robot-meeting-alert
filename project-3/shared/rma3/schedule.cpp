@@ -45,22 +45,22 @@ bool Schedule::valid(uint32_t now_ms) const {
   return committed_ && diff(valid_until_, now_ms) > 0;
 }
 
-bool Schedule::alerted(uint16_t id) const {
-  for (uint16_t d : done_) {
-    if (d == id) return true;
+bool Schedule::Ids::has(uint16_t v) const {
+  for (uint16_t x : id) {
+    if (x == v) return true;
   }
   return false;
 }
 
-void Schedule::remember(uint16_t id) {
-  done_[done_next_] = id;
-  done_next_ = (done_next_ + 1) % kRemember;
+void Schedule::Ids::add(uint16_t v) {
+  id[next] = v;
+  next = (next + 1) % kRemember;
 }
 
 // Meetings that started too long ago are marked as done without a sound.
 void Schedule::mark_late(uint32_t now_ms) {
   for (int i = 0; i < n_; ++i) {
-    if (!alerted(m_[i].id) && diff(now_ms, m_[i].start) > kLateMs) remember(m_[i].id);
+    if (!done_.has(m_[i].id) && diff(now_ms, m_[i].start) > kLateMs) done_.add(m_[i].id);
   }
 }
 
@@ -69,10 +69,22 @@ bool Schedule::tick(uint32_t now_ms) {
   mark_late(now_ms);
   bool fire = false;
   for (int i = 0; i < n_; ++i) {
-    if (!alerted(m_[i].id) && diff(now_ms, m_[i].start) >= 0) {
-      remember(m_[i].id);
+    if (!done_.has(m_[i].id) && diff(now_ms, m_[i].start) >= 0) {
+      done_.add(m_[i].id);
       fire = true;
     }
+  }
+  return fire;
+}
+
+bool Schedule::warn(uint32_t now_ms, uint32_t lead_ms) {
+  if (!valid(now_ms)) return false;
+  bool fire = false;
+  for (int i = 0; i < n_; ++i) {
+    int32_t since = diff(now_ms, m_[i].start - lead_ms);
+    if (since < 0 || warned_.has(m_[i].id)) continue;
+    warned_.add(m_[i].id);
+    if (since <= kLateMs && diff(m_[i].start, now_ms) > 0) fire = true;
   }
   return fire;
 }

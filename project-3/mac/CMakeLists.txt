@@ -51,8 +51,8 @@ set_target_properties(rma_app PROPERTIES
   OUTPUT_NAME "Robot Meeting Alert"
   MACOSX_BUNDLE_BUNDLE_NAME "Robot Meeting Alert"
   MACOSX_BUNDLE_GUI_IDENTIFIER "com.kylep.robot-meeting-alert.project3"
-  MACOSX_BUNDLE_BUNDLE_VERSION "0.3.0"
-  MACOSX_BUNDLE_SHORT_VERSION_STRING "0.3.0"
+  MACOSX_BUNDLE_BUNDLE_VERSION "0.4.0"
+  MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4.0"
   MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in)
 # Sign the whole bundle (ad hoc) so macOS ties the calendar and local-network
 # permissions to this app, with its Info.plist sealed in.

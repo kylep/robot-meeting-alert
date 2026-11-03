@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "auth.hpp"
+#include "config.hpp"
 #include "knob.hpp"
 #include "schedule.hpp"
 #include "sequencer.hpp"
@@ -27,6 +28,7 @@ struct Settings {  // boot defaults: ready for calendar alerts
   uint8_t sound = kWestminster;
   uint8_t meter = kMeterNone;
   uint8_t mode = kModeCalendar;
+  Config cfg;
 };
 
 struct Tone {
@@ -85,12 +87,20 @@ class Device {
     size_t len = 0;
     bool overflow = false;
   };
+  // What the light shows: one of the Looks, the manual colour, or nothing.
+  static constexpr int kShowNothing = -1;
+  static constexpr int kShowManual = kLooks;
+
   void handle_line(Source src, char* line, uint32_t now_ms, char* reply);
   bool handle_wifi(Source src, char* line, char* reply);
+  bool handle_config(char** tok, int n, char* reply);
   void write_state(char* reply) const;
-  void stage_color(float rgb[3], float* level) const;
+  void write_config(char* reply) const;
+  Look current_look() const;
+  int shown() const;
 
   Settings s_;
+  int shown_ = kShowNothing;  // kept while the current status's colour is "none"
   uint8_t bal_[3];
   Sequencer seq_;
   bool alert_sound_ = false;  // the current sound is a calendar alert
@@ -122,6 +132,7 @@ class Device {
 // Exposed for tests: perceptual curves.
 uint16_t gamma16(uint8_t v);         // (v/255)^2.2 * 65535
 uint16_t volume_permille(uint8_t pct);  // 500 * (pct/100)^0.7, 0 -> 0
+uint16_t volume_permille_of(double fraction);  // same curve, 0..1
 // Breathing for the "soon" stage: 0.35..1.0 over a 2 s period.
 float breathe(uint32_t now_ms);
 

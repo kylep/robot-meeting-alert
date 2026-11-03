@@ -30,6 +30,7 @@ struct Desired {
   uint8_t sound = 1;
   uint8_t meter = 0;
   uint8_t mode = 1;  // 0 manual, 1 calendar
+  Config cfg;        // light and beep settings
 };
 
 struct LinkSnapshot {
@@ -92,6 +93,7 @@ class Link {
   void connected_loop();
   Reply send(const std::string& cmd, std::string* line);
   Reply command(const std::string& cmd);  // expects a state line
+  Reply read_config();                    // CFG into robot_cfg_
   bool push_schedule();                   // false = connection dead
   bool do_wifi();                         // false = connection dead
   bool prove_key();                       // Wi-Fi: answer the robot's challenge
@@ -120,6 +122,8 @@ class Link {
 
   // Worker only.
   State reported_;
+  Config robot_cfg_;         // last CFG read from the robot
+  bool cfg_known_ = false;   // false: firmware without CFG, so never sent
   bool over_tcp_ = false;
   NetSession session_;  // Wi-Fi handshake + line tags
   std::string rejected_;  // last setting the robot refused

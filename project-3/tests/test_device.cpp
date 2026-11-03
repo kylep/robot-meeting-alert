@@ -32,7 +32,7 @@ void manual(Device& d) {
 void test_commands() {
   Device d;
   manual(d);
-  CHECK_STR(send(d, "HELLO\n"), "RMA 3 0.3.0");
+  CHECK_STR(send(d, "HELLO\n"), "RMA 3 0.4.0");
   CHECK_STR(send(d, "STATE\n"), "OK L0 CFFFFFF S1 M0 K0 Z0 T0 A0 W0");
   CHECK_STR(send(d, "LIGHT 1\n"), "OK L1 CFFFFFF S1 M0 K0 Z0 T0 A0 W0");
   CHECK_STR(send(d, "RGB 255 128 0\n"), "OK L1 CFF8000 S1 M0 K0 Z0 T0 A0 W0");
@@ -128,6 +128,19 @@ void test_volume() {
   CHECK(d.tone().hz == 0);  // knob at 0 in volume mode: silent (Kyle: 0 is an option)
   send(d, "METER 1\n", 10);
   CHECK(d.tone().hz == 2000 && d.tone().duty_permille == 500);  // brightness only
+  // Overall volume multiplies the knob: 50 % with the knob at 80 % = 40 %.
+  Device v;
+  send(v, "METER 2\n");
+  for (int i = 0; i < 40; ++i) v.knob_sample(60 + (4035 - 60) * 8 / 10);
+  CHECK(v.knob() == 80);
+  send(v, "VOL 50\n");
+  send(v, "PLAY 4\n", 0);
+  v.tick(10, true);
+  CHECK(v.tone().hz == 2000 && v.tone().duty_permille == rma3::volume_permille(40));
+  send(v, "METER 1\n", 10);  // knob on brightness: the overall volume alone
+  CHECK(v.tone().duty_permille == rma3::volume_permille(50));
+  send(v, "VOL 0\n", 10);
+  CHECK(v.tone().hz == 0);
 }
 
 void test_sequencer() {

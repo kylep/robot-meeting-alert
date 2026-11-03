@@ -19,6 +19,11 @@ implementing agents. Builds on project 2's board, code and lessons
   - Alert scheme approved: green = free, amber ≈ 5 min before, red + melody
     at the start, dim red during the meeting.
 - Audience for the video: his sons, 7 and 9.
+- Settings (2026-11-03, firmware 0.4.0): a colour per calendar status with
+  "None = no state change"; overall volume and brightness "multiplied by the
+  knob controls, so if volume is set to 50% and the knob is at 80%, i get
+  40%"; an optional warning beep N minutes before; the start-of-meeting
+  sound can be turned off.
 
 ## 1. Verified facts (2026-11-01)
 
@@ -62,7 +67,7 @@ Built without `dns_sd.h`: the Mac finds the robot by resolving `rma.local` with 
   Wi-Fi carry the same ASCII line protocol into the same `Device`. USB stays
   for flashing, Wi-Fi setup and debugging.
 - Code layout: `project-3/` is a copy of `project-2/` (self-contained per
-  project, as before), namespace `rma3`, protocol v3, firmware 0.3.0.
+  project, as before), namespace `rma3`, protocol v3, firmware 0.3.0 (0.4.0: §3.2 settings).
 
 ## 3. Behaviour
 
@@ -84,6 +89,17 @@ Built without `dns_sd.h`: the Mac finds the robot by resolving `rma.local` with 
 | No schedule | Calendar mode but no schedule received yet, or schedule expired (§3.3) | dim blue, 15 % | — |
 
 - Percentages multiply with the knob in Brightness/Both mode.
+- **Configurable (0.4.0):** each look (No schedule, Free, Soon, Start, In
+  meeting) has a colour, defaults as above with the level folded into the
+  colour (green 40 % = 0,102,0, exact because levels are perceptual). A look
+  set to *none* keeps whatever was showing (at boot: dark). Soon still
+  breathes. Overall brightness and volume (0–100 %) multiply the knob when it
+  controls them, in both modes.
+- **Warning beep (0.4.0, off by default):** the Beep sound N minutes (1–60)
+  before each start, once per meeting (its own id ring), same 60 s late
+  rule, never after the start, and never cutting into another meeting's
+  melody (skipped, not queued). The start melody can be switched off on its
+  own (`ONSTART 0`).
 - **Back-to-back:** in-meeting beats soon; a meeting starting while another
   is running still plays the melody once at its start.
 - **Overlapping meetings:** in meeting until the last overlapping one ends.
@@ -134,7 +150,7 @@ trade-off Kyle accepted, made visible instead of silent.
 ## 4. Protocol v3 (`project-3/shared/rma3`)
 
 ASCII lines as project 2, one reply per line, never unsolicited.
-`kMaxLine` grows from 32 to 96 for the Wi-Fi commands. `HELLO` → `RMA 3 0.3.0`.
+`kMaxLine` grows from 32 to 96 for the Wi-Fi commands. `HELLO` → `RMA 3 0.4.0`.
 
 Unchanged from v2: `LIGHT`, `RGB`, `SOUND`, `PLAY`, `PLAY n`, `STOP`,
 `METER`, `STATE`.
@@ -153,6 +169,17 @@ Unchanged from v2: `LIGHT`, `RGB`, `SOUND`, `PLAY`, `PLAY n`, `STOP`,
 | `KEY <32 hex>` | **USB only.** Set the robot's key (saved to flash only if it changed) |
 | `HI <32 hex nm>` | Network: reply `OK HI <nr> <robot proof>`. One per connection |
 | `AUTH <32 hex>` | Network: the Mac's proof. `OK AUTH`, else `ERR AUTH`. One try per connection |
+| `VOL n`, `BRIGHT n` | Overall volume / brightness, 0–100 % (0.4.0) |
+| `WARN m` | Warning beep m minutes before each meeting, 1–60; 0 = off (0.4.0) |
+| `ONSTART 0\|1` | Play the alert sound when a meeting starts (0.4.0) |
+| `COL i R G B`, `COL i -` | Colour for look i (0 no schedule, 1 free, 2 soon, 3 start, 4 in meeting); `-` = none (0.4.0) |
+| `CFG` | Reply `OK CFG V<vol> B<bright> W<warn> S<onstart>` + five `RRGGBB`/`-` in look order (0.4.0) |
+
+**Settings line (0.4.0).** The new settings don't fit the state line, so
+setters still reply with the state line and the app reads them with `CFG`:
+once on connect, and again after sending any. Firmware that answers `CFG`
+with an error is never sent them (the app says to `make flash`). Like every
+other setting they live in RAM and the app puts them back on connect.
 
 **Passphrase (added 2026-11-01).** Kyle: "can we add a password for the wifi
 control?", then "i'd really rather you be able to take control over wifi
@@ -355,8 +382,7 @@ Kyle's approval before animating, as in phase 2:
 
 - Free = steady green all day and night in Calendar mode. A quiet-hours
   setting (light off outside, say, 8:00–18:00) is easy to add; not included.
-- Amber window 5 min and the melody only at the start, as approved. Both
-  are constants the app could expose later.
+- Amber window 5 min, as approved; a constant the app could expose later.
 - Alert melody = the selected sound (project 2's selector). Off = silent alerts.
 - Staleness 15 min (dim blue). Shorter is noisier when the laptop sleeps
   briefly; longer risks alerting for a meeting deleted while the Mac slept.

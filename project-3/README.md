@@ -12,6 +12,12 @@ Wi-Fi:
 | dim red | in a meeting |
 | dim blue | it hasn't heard from the Mac for 15 minutes (asleep, off, away) |
 
+Those are the defaults. In Calendar mode, **Light config** picks the colour
+for each status, or **None** to leave the light as it was. The sound settings
+can add a **warning beep** a few minutes before each meeting, or turn off the
+melody at the start. **Volume** and **Brightness** scale everything and stack
+with the knob: 50 % volume with the knob at 80 % plays at 40 %.
+
 How it works: the Mac app reads the Mac's own Calendar (any account added in
 System Settings → Internet Accounts) and every 30 seconds tells the robot
 "meetings start in N seconds". **Only times are sent, never titles or
@@ -118,8 +124,14 @@ All public domain. Adding one = a few lines in `shared/rma3/melodies.cpp`, then 
 rmactl [--port PATH | --host IP] hello | state | light on|off | rgb R G B
        | sound N | play [N] | stop | meter none|bright|vol|both | bal R G B
        | watch SECONDS | mode cal|manual | net | wifi | wificlr
-       | event IN_S DUR_S
+       | event IN_S DUR_S | cfg | vol PCT | bright PCT | warn MIN|off
+       | onstart on|off | col waiting|free|soon|start|meeting R G B|none
 ```
+
+`cfg` shows the light and beep settings. `col soon none` leaves the light
+alone when a meeting is near; `warn 2` beeps 2 minutes before each meeting;
+`onstart off` keeps the start silent. The app sets these too, and puts its own
+choices back each time it connects.
 
 `pair` asks for the robot passphrase and saves it on this Mac (and on the
 robot, if it's on USB); `--host` then works over Wi-Fi.
@@ -134,6 +146,7 @@ lasting 2 minutes (calendar mode), for testing without a calendar. `wifi` and
 |---|---|
 | Pico LED keeps blinking | Wrong Wi-Fi name/password, or a 5 GHz-only network (the Pico needs 2.4 GHz). Plug in USB, `rmactl wifi` again |
 | App says the robot "didn't accept this Mac's passphrase" | Retype it in Settings → Robot passphrase. Forgot it? Plug the robot in with USB and set a new one |
+| App says the robot's firmware "has no light or beep settings yet" | The robot runs firmware older than 0.4.0. Plug it in with USB and `make flash` |
 | App says "Looking for the robot" | Rebuilt the app recently? See "After rebuilding" above. Same Wi-Fi as the Mac? Allowed **Local Network** for the app (System Settings → Privacy & Security → Local Network)? Try the robot's address under Wi-Fi setup |
 | Robot is dim blue | The app isn't running, or the Mac is asleep or on another network |
 | No melody at a meeting | Alert sound set to Off, or the knob is at 0 in Volume/Both mode |

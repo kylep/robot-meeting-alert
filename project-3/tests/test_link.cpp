@@ -38,6 +38,7 @@ class FakeCore {
   explicit FakeCore(rma3::Source src) : src_(src) {}
   void set_silent(bool s) { silent_ = s; }
   void set_fail_ev(bool f) { fail_ev_ = f; }
+  void set_old_firmware(bool o) { old_fw_ = o; }  // no CFG: firmware before light/beep settings
   void set_knob_raw(uint16_t raw) { knob_raw_ = raw; }
 
   // Feeds received bytes; returns the reply bytes to send back.
@@ -52,11 +53,12 @@ class FakeCore {
         size_t tag = cur_.rfind(" #");  // log the command without its Wi-Fi tag
         lines_.push_back(tag == std::string::npos ? cur_ : cur_.substr(0, tag));
         bool fail = fail_ev_ && cur_.rfind("EV", 0) == 0;
+        bool old = old_fw_ && cur_.rfind("CFG", 0) == 0;
         cur_.clear();
-        if (fail) {
+        if (fail || old) {
           char scratch[rma3::Device::kMaxReply];
           dev_.feed(src_, '\n', now_ms(), scratch);  // keep the device's own buffer in step
-          out += "ERR FULL\r\n";
+          out += fail ? "ERR FULL\r\n" : "ERR BADCMD\r\n";
           continue;
         }
       } else if (c != '\r') {
@@ -118,7 +120,7 @@ class FakeCore {
 
  private:
   rma3::Source src_;
-  std::atomic<bool> silent_{false}, fail_ev_{false};
+  std::atomic<bool> silent_{false}, fail_ev_{false}, old_fw_{false};
   std::atomic<uint16_t> knob_raw_{0};
   std::mutex mu_;
   rma3::Device dev_;
@@ -243,7 +245,7 @@ void test_settings_sound_and_knob() {
   rma3::Link link([&] { return std::vector<std::string>{fake.path()}; });
   link.start();
   CHECK(eventually([&] { return connected(link); }, 2s));
-  CHECK_STR(link.snapshot().fw, "0.3.0");
+  CHECK_STR(link.snapshot().fw, "0.4.0");
   CHECK(!link.snapshot().over_wifi);
 
   rma3::Desired d;
@@ -369,6 +371,45 @@ void test_refused_setting_keeps_connection() {
   CHECK(eventually([&] { return fake.settings().sound == 3; }, 1s));
 }
 
+void test_light_and_beep_settings_reach_robot() {
+  FakeUsb fake;
+  rma3::Link link([&] { return std::vector<std::string>{fake.path()}; });
+  rma3::Desired d;
+  d.cfg.volume = 40;
+  d.cfg.warn_min = 5;
+  d.cfg.start_sound = false;
+  d.cfg.look[rma3::kLookSoon].none = true;
+  d.cfg.look[rma3::kLookFree] = rma3::LookColour{false, 1, 2, 3};
+  link.set_desired(d);
+  link.start();
+  CHECK(eventually([&] {
+    rma3::Config c = fake.settings().cfg;
+    return c.volume == 40 && c.warn_min == 5 && !c.start_sound && c.look[rma3::kLookSoon].none &&
+           c.look[rma3::kLookFree].b == 3;
+  }, 2s));
+  std::this_thread::sleep_for(200ms);
+  CHECK(fake.count("VOL 40") == 1);  // sent once, then known from CFG
+  CHECK(fake.count("COL 2 -") == 1);
+  CHECK(fake.count_prefix("BRIGHT") == 0);  // already as wanted
+  CHECK(fake.count_prefix("COL 0") == 0);
+  CHECK(link.snapshot().last_error.empty());
+}
+
+void test_old_firmware_gets_no_new_settings() {
+  FakeUsb fake;
+  fake.set_old_firmware(true);
+  rma3::Link link([&] { return std::vector<std::string>{fake.path()}; });
+  rma3::Desired d;
+  d.cfg.volume = 40;
+  link.set_desired(d);
+  link.start();
+  CHECK(eventually([&] { return link.snapshot().last_error.find("firmware") != std::string::npos; }, 2s));
+  std::this_thread::sleep_for(200ms);
+  CHECK(connected(link));
+  CHECK(fake.count("HELLO") == 1);  // never reconnected
+  CHECK(fake.count_prefix("VOL") == 0);
+}
+
 void test_pairing_over_usb_then_wifi() {
   // Over USB, "set on robot" stores this Mac's key (from the passphrase).
   FakeUsb usb;
@@ -426,6 +467,8 @@ int main() {
   test_schedule_error_keeps_connection();
   test_refused_setting_keeps_connection();
   test_wifi_setup_over_usb();
+  test_light_and_beep_settings_reach_robot();
+  test_old_firmware_gets_no_new_settings();
   test_pairing_over_usb_then_wifi();
   if (g_failures == 0) std::printf("test_link: ok\n");
   return g_failures;

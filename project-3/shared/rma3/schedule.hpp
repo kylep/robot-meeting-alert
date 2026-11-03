@@ -34,6 +34,10 @@ class Schedule {
   // Advances time. Returns true exactly once per meeting, when its melody
   // should start.
   bool tick(uint32_t now_ms);
+  // The warning beep, `lead_ms` before each start: true exactly once per
+  // meeting. A warning first seen more than kLateMs late, or once the meeting
+  // has started, stays silent (same rule as the melody).
+  bool warn(uint32_t now_ms, uint32_t lead_ms);
 
   Stage stage(uint32_t now_ms) const;
   bool fresh_start(uint32_t now_ms) const;  // a meeting began < 10 s ago
@@ -41,8 +45,14 @@ class Schedule {
   bool valid(uint32_t now_ms) const;
 
  private:
-  bool alerted(uint16_t id) const;
-  void remember(uint16_t id);
+  // Recently handled meeting ids; the oldest is overwritten first. Id 0 is
+  // never a meeting, so the zeroed ring starts empty.
+  struct Ids {
+    uint16_t id[kRemember] = {};
+    int next = 0;
+    bool has(uint16_t v) const;
+    void add(uint16_t v);
+  };
   void mark_late(uint32_t now_ms);
 
   Meeting m_[kMax];
@@ -55,8 +65,8 @@ class Schedule {
   Meeting stage_[kMax];
   int stage_n_ = 0;
 
-  uint16_t done_[kRemember] = {};
-  int done_next_ = 0;
+  Ids done_;    // melody played (or skipped as late)
+  Ids warned_;  // warning beeped (or skipped as late)
 };
 
 }  // namespace rma3

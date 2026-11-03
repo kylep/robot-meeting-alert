@@ -195,6 +195,16 @@ bool Link::try_connect() {
       port_.close();
       return false;
     }
+    Reply cfg = read_config();
+    if (cfg == Reply::Dead) {
+      port_.close();
+      return false;
+    }
+    cfg_known_ = cfg == Reply::Ok;
+    if (!cfg_known_) {
+      std::lock_guard<std::mutex> lock(mu_);
+      snap_.last_error = "This robot's firmware has no light or beep settings yet. Update it (make flash over USB).";
+    }
     return true;
   }
   std::lock_guard<std::mutex> lock(mu_);
@@ -267,6 +277,14 @@ Link::Reply Link::command(const std::string& cmd) {
   reported_ = s;
   std::lock_guard<std::mutex> lock(mu_);
   snap_.reported = s;
+  return Reply::Ok;
+}
+
+Link::Reply Link::read_config() {
+  std::string line;
+  Reply r = send("CFG", &line);
+  if (r != Reply::Ok) return r;
+  if (!parse_config(line, &robot_cfg_)) return Reply::Dead;  // garbage: resync by reconnecting
   return Reply::Ok;
 }
 
@@ -375,6 +393,25 @@ void Link::connected_loop() {
     if (!setting(d.sound != r.sound, "SOUND " + std::to_string(d.sound))) return;
     if (!setting(d.meter != r.meter, "METER " + std::to_string(d.meter))) return;
     if (!setting(d.mode != r.mode, "MODE " + std::to_string(d.mode))) return;
+    // The light and beep settings aren't in the state line: after sending
+    // any, read them back with CFG.
+    if (cfg_known_) {
+      const Config& w = d.cfg;
+      const Config& h = robot_cfg_;
+      bool sent = false;
+      auto put = [&](bool differs, const std::string& cmd) {
+        sent = sent || (differs && cmd != rejected_);
+        return setting(differs, cmd);
+      };
+      if (!put(w.volume != h.volume, "VOL " + std::to_string(w.volume))) return;
+      if (!put(w.brightness != h.brightness, "BRIGHT " + std::to_string(w.brightness))) return;
+      if (!put(w.warn_min != h.warn_min, "WARN " + std::to_string(w.warn_min))) return;
+      if (!put(w.start_sound != h.start_sound, w.start_sound ? "ONSTART 1" : "ONSTART 0")) return;
+      for (int i = 0; i < kLooks; ++i) {
+        if (!put(!same_look(w.look[i], h.look[i]), look_command(i, w.look[i]))) return;
+      }
+      if (sent && read_config() == Reply::Dead) return;
+    }
     for (const std::string& e : events) {
       if (command(e) == Reply::Dead) return;
     }

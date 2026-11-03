@@ -2,7 +2,8 @@
 //   rmactl [--port PATH | --host IP] hello | state | light on|off | rgb R G B
 //          | sound N | play [N] | stop | meter none|bright|vol|both | bal R G B
 //          | watch SECONDS | mode cal|manual | net | wifi | wificlr
-//          | pair | event IN_S DUR_S
+//          | pair | event IN_S DUR_S | cfg | vol PCT | bright PCT
+//          | warn MIN|off | onstart on|off | col STATUS R G B|none
 // `play` waits until the sound finishes (closing the port would stop it).
 // `wifi` asks for the network name and password on the terminal (USB only),
 // so the password never lands on a command line or in shell history.
@@ -10,6 +11,8 @@
 // robot on USB it sets the robot's passphrase too. Over Wi-Fi (--host) the
 // robot only obeys a Mac holding that key.
 // `event` gives the robot one pretend meeting starting IN_S seconds from now.
+// `col` sets the light for a calendar status (waiting, free, soon, start,
+// meeting); `none` leaves the light as it was. `cfg` shows these settings.
 // Exit: 0 ok, 1 device error/timeout, 2 no device, 3 port busy, 64 usage.
 #include <termios.h>
 #include <unistd.h>
@@ -40,7 +43,9 @@ int usage() {
                "              rgb R G B | sound N | play [N] | stop |\n"
                "              meter none|bright|vol|both | bal R G B | watch SECONDS |\n"
                "              mode cal|manual | net | wifi | wificlr | pair |\n"
-               "              event IN_S DUR_S>\n");
+               "              event IN_S DUR_S | cfg | vol PCT | bright PCT |\n"
+               "              warn MIN|off | onstart on|off |\n"
+               "              col waiting|free|soon|start|meeting R G B|none>\n");
   return 64;
 }
 
@@ -165,6 +170,23 @@ int main(int argc, char** argv) {
     int in = std::atoi(a[1].c_str()), dur = std::atoi(a[2].c_str());
     cmd = "CAL";
     more = {"EV 1 " + std::to_string(in) + " " + std::to_string(in + dur), "CALGO 3600", "MODE 1"};
+  } else if (v == "cfg" && a.size() == 1) {
+    cmd = "CFG";
+  } else if ((v == "vol" || v == "bright") && a.size() == 2 && is_num(a[1])) {
+    cmd = (v == "vol" ? "VOL " : "BRIGHT ") + a[1];
+  } else if (v == "warn" && a.size() == 2 && (a[1] == "off" || is_num(a[1], 2))) {
+    cmd = "WARN " + (a[1] == "off" ? std::string("0") : a[1]);
+  } else if (v == "onstart" && a.size() == 2 && (a[1] == "on" || a[1] == "off")) {
+    cmd = a[1] == "on" ? "ONSTART 1" : "ONSTART 0";
+  } else if (v == "col" && (a.size() == 3 || a.size() == 5)) {
+    const char* names[] = {"waiting", "free", "soon", "start", "meeting"};  // rma3::Look order
+    for (int i = 0; i < 5; ++i) {
+      if (a[1] == names[i]) cmd = "COL " + std::to_string(i);
+    }
+    if (cmd.empty()) return usage();
+    if (a.size() == 3 && a[2] == "none") cmd += " -";
+    else if (a.size() == 5 && is_num(a[2]) && is_num(a[3]) && is_num(a[4])) cmd += " " + a[2] + " " + a[3] + " " + a[4];
+    else return usage();
   } else if (v == "watch" && a.size() == 2 && is_num(a[1])) {
     watch_s = std::atoi(a[1].c_str());
     cmd = "STATE";

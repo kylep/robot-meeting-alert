@@ -43,6 +43,17 @@ int hex(char c) {
   return -1;
 }
 
+// "RRGGBB" (upper-case hex, as the robot writes it).
+bool colour(std::string_view s, uint8_t rgb[3]) {
+  if (s.size() != 6) return false;
+  for (int k = 0; k < 3; ++k) {
+    int hi = hex(s[2 * k]), lo = hex(s[2 * k + 1]);
+    if (hi < 0 || lo < 0) return false;
+    rgb[k] = static_cast<uint8_t>(hi * 16 + lo);
+  }
+  return true;
+}
+
 }  // namespace
 
 bool parse_state(std::string_view line, State* out) {
@@ -56,14 +67,8 @@ bool parse_state(std::string_view line, State* out) {
   int v = 0;
   if (!dec(field(1, 'L'), 1, &v)) return false;
   s.light = v == 1;
-  std::string_view col = field(2, 'C');
-  if (col.size() != 6) return false;
   uint8_t rgb[3];
-  for (int k = 0; k < 3; ++k) {
-    int hi = hex(col[2 * k]), lo = hex(col[2 * k + 1]);
-    if (hi < 0 || lo < 0) return false;
-    rgb[k] = static_cast<uint8_t>(hi * 16 + lo);
-  }
+  if (!colour(field(2, 'C'), rgb)) return false;
   s.r = rgb[0]; s.g = rgb[1]; s.b = rgb[2];
   if (!dec(field(3, 'S'), kSoundCount - 1, &v)) return false;
   s.sound = v;
@@ -81,6 +86,44 @@ bool parse_state(std::string_view line, State* out) {
   s.net = v;
   *out = s;
   return true;
+}
+
+bool parse_config(std::string_view line, Config* out) {
+  auto t = split(line);
+  if (t.size() != 6 + kLooks || t[0] != "OK" || t[1] != "CFG") return false;
+  auto num = [&](size_t i, char tag, int max, int* v) {
+    return t[i].size() >= 2 && t[i][0] == tag && dec(t[i].substr(1), max, v);
+  };
+  Config c;
+  int vol = 0, bright = 0, warn = 0, start = 0;
+  if (!num(2, 'V', 100, &vol) || !num(3, 'B', 100, &bright) || !num(4, 'W', kMaxWarnMin, &warn) ||
+      !num(5, 'S', 1, &start)) {
+    return false;
+  }
+  c.volume = static_cast<uint8_t>(vol);
+  c.brightness = static_cast<uint8_t>(bright);
+  c.warn_min = static_cast<uint8_t>(warn);
+  c.start_sound = start == 1;
+  for (int i = 0; i < kLooks; ++i) {
+    std::string_view s = t[6 + i];
+    LookColour& l = c.look[i];
+    uint8_t rgb[3];
+    if (s == "-") {
+      l.none = true;
+    } else if (colour(s, rgb)) {
+      l = LookColour{false, rgb[0], rgb[1], rgb[2]};
+    } else {
+      return false;
+    }
+  }
+  *out = c;
+  return true;
+}
+
+std::string look_command(int look, const LookColour& c) {
+  std::string cmd = "COL " + std::to_string(look);
+  if (c.none) return cmd + " -";
+  return cmd + " " + std::to_string(c.r) + " " + std::to_string(c.g) + " " + std::to_string(c.b);
 }
 
 uint16_t meeting_id(const std::string& event_id, double start) {

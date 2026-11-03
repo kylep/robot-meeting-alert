@@ -5,7 +5,7 @@
 #include <cstring>
 
 #ifndef RMA_FW_VERSION
-#define RMA_FW_VERSION "0.3.0"
+#define RMA_FW_VERSION "0.4.0"
 #endif
 
 namespace rma3 {
@@ -57,8 +57,9 @@ bool parse_int(const char* s, long max, int32_t* v) {
 }
 
 float brightness_factor(const Settings& s, uint8_t knob) {
-  if (s.meter == kMeterBright || s.meter == kMeterBoth) return knob / 100.0f;
-  return 1.0f;
+  float f = s.cfg.brightness / 100.0f;
+  if (s.meter == kMeterBright || s.meter == kMeterBoth) f *= knob / 100.0f;
+  return f;
 }
 
 bool starts_with_word(const char* line, const char* word) {
@@ -72,10 +73,12 @@ uint16_t gamma16(uint8_t v) {
   return static_cast<uint16_t>(std::lround(std::pow(v / 255.0, 2.2) * 65535.0));
 }
 
-uint16_t volume_permille(uint8_t pct) {
-  if (pct == 0) return 0;
-  return static_cast<uint16_t>(std::lround(500.0 * std::pow(pct / 100.0, 0.7)));
+uint16_t volume_permille_of(double fraction) {
+  if (fraction <= 0) return 0;
+  return static_cast<uint16_t>(std::lround(500.0 * std::pow(fraction, 0.7)));
 }
+
+uint16_t volume_permille(uint8_t pct) { return volume_permille_of(pct / 100.0); }
 
 float breathe(uint32_t now_ms) {
   float phase = static_cast<float>(now_ms % 2000) / 2000.0f;  // 0..1
@@ -294,6 +297,8 @@ void Device::handle_line(Source src, char* line, uint32_t now_ms, char* reply) {
     Schedule::Result r = sched_.commit(now_ms, static_cast<uint32_t>(a));
     if (r != Schedule::kOk) return sched_err(r);
     now_ = now_ms;
+  } else if (handle_config(tok, n, reply)) {
+    return;
   } else {
     copy_reply(reply, "ERR BADCMD");
     return;
@@ -301,15 +306,63 @@ void Device::handle_line(Source src, char* line, uint32_t now_ms, char* reply) {
   write_state(reply);
 }
 
+// VOL, BRIGHT, WARN, ONSTART and COL change the light and beep settings; CFG
+// reads them. False for any other verb.
+bool Device::handle_config(char** tok, int n, char* reply) {
+  auto is = [&](const char* v) { return std::strcmp(tok[0], v) == 0; };
+  Config& c = s_.cfg;
+  int a = 0;
+  bool good = false;
+  if (is("CFG")) {
+    if (n != 1) return copy_reply(reply, "ERR BADARG"), true;
+    write_config(reply);
+    return true;
+  }
+  if (is("VOL") || is("BRIGHT") || is("WARN") || is("ONSTART")) {
+    int max = is("WARN") ? kMaxWarnMin : is("ONSTART") ? 1 : 100;
+    good = n == 2 && parse_uint(tok[1], max, &a);
+    if (good && is("VOL")) c.volume = static_cast<uint8_t>(a);
+    if (good && is("BRIGHT")) c.brightness = static_cast<uint8_t>(a);
+    if (good && is("WARN")) c.warn_min = static_cast<uint8_t>(a);
+    if (good && is("ONSTART")) c.start_sound = a == 1;
+  } else if (is("COL")) {
+    int rgb[3] = {};
+    good = n >= 2 && parse_uint(tok[1], kLooks - 1, &a);
+    if (good && n == 3 && std::strcmp(tok[2], "-") == 0) {
+      // Keeps r, g, b: if this status is showing right now, the light stays as it is.
+      c.look[a].none = true;
+    } else if (good && n == 5 && parse_uint(tok[2], 255, &rgb[0]) && parse_uint(tok[3], 255, &rgb[1]) &&
+               parse_uint(tok[4], 255, &rgb[2])) {
+      c.look[a] = LookColour{false, static_cast<uint8_t>(rgb[0]), static_cast<uint8_t>(rgb[1]),
+                             static_cast<uint8_t>(rgb[2])};
+    } else {
+      good = false;
+    }
+  } else {
+    return false;
+  }
+  if (good) write_state(reply);
+  else copy_reply(reply, "ERR BADARG");
+  return true;
+}
+
 void Device::tick(uint32_t now_ms, bool host_connected) {
   now_ = now_ms;
-  if (sched_.tick(now_ms) && s_.mode == kModeCalendar) {
-    seq_.start(s_.sound, now_ms);  // Off: start() stops, so alerts stay silent
-    alert_sound_ = seq_.playing();
+  bool start = sched_.tick(now_ms);
+  bool warn = s_.cfg.warn_min > 0 && sched_.warn(now_ms, s_.cfg.warn_min * 60000u);
+  if (s_.mode == kModeCalendar) {
+    if (start && s_.cfg.start_sound) {
+      seq_.start(s_.sound, now_ms);  // Off: start() stops, so alerts stay silent
+      alert_sound_ = seq_.playing();
+    } else if (warn && !alert_sound_) {  // never cut into another meeting's melody
+      seq_.start(kBeep, now_ms);
+      alert_sound_ = true;
+    }
   }
   if (!host_connected && !alert_sound_) seq_.stop();
   seq_.tick(now_ms);
   if (!seq_.playing()) alert_sound_ = false;
+  shown_ = shown();
 }
 
 void Device::set_net(NetStatus st, const char* ip) {
@@ -357,30 +410,34 @@ WifiAction Device::take_wifi_action(WifiCreds* creds) {
   return a;
 }
 
-// Calendar mode: the stage picks the colour and how bright it is.
-void Device::stage_color(float rgb[3], float* level) const {
-  auto set = [&](float r, float g, float b, float l) {
-    rgb[0] = r; rgb[1] = g; rgb[2] = b; *level = l;
-  };
+Look Device::current_look() const {
   switch (sched_.stage(now_)) {
-    case kStageFree: set(0, 1, 0, 0.40f); break;
-    case kStageSoon: set(1, 120 / 255.0f, 0, breathe(now_)); break;
-    case kStageMeeting: set(1, 0, 0, sched_.fresh_start(now_) ? 1.0f : 0.25f); break;
-    default: set(0, 0, 1, 0.15f); break;  // no schedule (yet, or stale)
+    case kStageFree: return kLookFree;
+    case kStageSoon: return kLookSoon;
+    case kStageMeeting: return sched_.fresh_start(now_) ? kLookStart : kLookMeeting;
+    default: return kLookWaiting;  // no schedule (yet, or stale)
   }
 }
 
+// Calendar mode shows the current status's colour, unless that colour is
+// "none": then whatever was showing stays.
+int Device::shown() const {
+  if (s_.mode != kModeCalendar) return kShowManual;
+  Look look = current_look();
+  return s_.cfg.look[look].none ? shown_ : look;
+}
+
 uint16_t Device::led_level(int ch) const {
-  if (!s_.light || ch < 0 || ch > 2) return 0;
-  float colour = 0, level = 1;
-  if (s_.mode == kModeCalendar) {
-    float rgb[3];
-    stage_color(rgb, &level);
-    colour = std::pow(rgb[ch], 2.2f);
-  } else {
-    const uint8_t v[3] = {s_.r, s_.g, s_.b};
-    colour = gamma16(v[ch]) / 65535.0f;
+  int show = shown();
+  if (!s_.light || ch < 0 || ch > 2 || show == kShowNothing) return 0;
+  uint8_t v[3] = {s_.r, s_.g, s_.b};
+  float level = 1;
+  if (show != kShowManual) {
+    const LookColour& c = s_.cfg.look[show];
+    v[0] = c.r; v[1] = c.g; v[2] = c.b;
+    if (show == kLookSoon) level = breathe(now_);
   }
+  float colour = gamma16(v[ch]) / 65535.0f;
   float bright = brightness_factor(s_, knob_.percent()) * level;
   float lin = colour * std::pow(bright, 2.2f) * (bal_[ch] / 255.0f);
   return static_cast<uint16_t>(std::lround(lin * 65535.0f));
@@ -390,8 +447,9 @@ Tone Device::tone() const {
   Tone t;
   t.hz = seq_.hz();
   if (t.hz == 0) return t;
-  uint8_t vol = (s_.meter == kMeterVol || s_.meter == kMeterBoth) ? knob_.percent() : 100;
-  t.duty_permille = volume_permille(vol);
+  double vol = s_.cfg.volume / 100.0;
+  if (s_.meter == kMeterVol || s_.meter == kMeterBoth) vol *= knob_.percent() / 100.0;
+  t.duty_permille = volume_permille_of(vol);
   if (t.duty_permille == 0) t.hz = 0;
   return t;
 }
@@ -401,6 +459,18 @@ void Device::write_state(char* reply) const {
   std::snprintf(buf, sizeof buf, "OK L%d C%02X%02X%02X S%d M%d K%d Z%d T%d A%d W%d", s_.light ? 1 : 0,
                 s_.r, s_.g, s_.b, s_.sound, s_.meter, knob_.percent(), seq_.playing() ? 1 : 0, s_.mode,
                 sched_.stage(now_), net_);
+  copy_reply(reply, buf);
+}
+
+void Device::write_config(char* reply) const {
+  const Config& c = s_.cfg;
+  char buf[kMaxReply];
+  int len = std::snprintf(buf, sizeof buf, "OK CFG V%d B%d W%d S%d", c.volume, c.brightness, c.warn_min,
+                          c.start_sound ? 1 : 0);
+  for (const LookColour& l : c.look) {
+    if (l.none) len += std::snprintf(buf + len, sizeof buf - len, " -");
+    else len += std::snprintf(buf + len, sizeof buf - len, " %02X%02X%02X", l.r, l.g, l.b);
+  }
   copy_reply(reply, buf);
 }
 
