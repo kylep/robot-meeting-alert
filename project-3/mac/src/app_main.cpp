@@ -250,6 +250,7 @@ int main(int, char**) {
   bool test_on = false;
   rma3::CalEvent test_event;
   double next_fetch = 0;
+  double next_sync = 0;
   if (!chosen.empty()) cal->request_access();
 
   rma3::Desired want;
@@ -284,9 +285,14 @@ int main(int, char**) {
       SDL_Delay(10);
     }
 
-    // Calendar: re-read every 30 s, on any calendar change, and after the
-    // Test alert button. Runs even while the window is minimised.
+    // Calendar: sync with the server every minute; re-read every 30 s, on any
+    // calendar change, and after the Test alert button. Runs even while the
+    // window is minimised.
     double now = wall_now();
+    if (now >= next_sync) {
+      cal->refresh();
+      next_sync = now + 60;
+    }
     if (test_on && now >= test_until) {  // drop the pretend meeting from the robot
       test_on = false;
       next_fetch = 0;

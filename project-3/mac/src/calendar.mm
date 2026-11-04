@@ -62,6 +62,13 @@ void CalendarSource::request_access() {
   [store requestFullAccessToEventsWithCompletion:done];  // macOS 14+
 }
 
+// EventKit only reads the Mac's local copy, which can keep events deleted on
+// the server for many minutes (e.g. after a reboot). This makes the Calendar
+// app sync now; EKEventStoreChangedNotification fires when it lands.
+void CalendarSource::refresh() {
+  if (access_ == Access::Granted) [impl_->store refreshSourcesIfNecessary];
+}
+
 std::vector<CalendarInfo> CalendarSource::calendars() {
   std::vector<CalendarInfo> out;
   if (access_ != Access::Granted) return out;

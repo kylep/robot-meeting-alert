@@ -43,6 +43,9 @@ class CalendarProvider {
                                              double to) = 0;
   // True once after the calendar data changed.
   virtual bool take_changed() = 0;
+  // Asks the provider to pull from its server now. Any change arrives later
+  // through take_changed().
+  virtual void refresh() {}
 };
 
 std::unique_ptr<CalendarProvider> make_calendar_provider(CalendarKind kind);

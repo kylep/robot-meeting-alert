@@ -33,6 +33,7 @@ class CalendarSource : public CalendarProvider {
   std::vector<rma3::CalEvent> events(const std::vector<std::string>& calendar_ids, double from,
                                      double to) override;
   bool take_changed() override { return changed_.exchange(false); }
+  void refresh() override;
 
   struct Impl;
 

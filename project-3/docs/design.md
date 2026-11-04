@@ -289,7 +289,10 @@ state line or debug print. `NET` reports only status and IP, not the SSID.
   until that goes stale.
 - **Link:** project 2's one-reply-per-line worker, extended with the schedule
   push (`CAL`, `EV`…, `CALGO` sent in order; an `ERR` reply aborts that push
-  only) on connect, every 30 s, and on calendar change.
+  only) on connect, every 30 s, and on calendar change. Once a minute the app
+  also asks the Calendar app to sync with its servers
+  (`refreshSourcesIfNecessary`), since the Mac's local copy can keep
+  deleted events for many minutes.
 - **`rmactl` v3:** v2 commands plus `mode cal|manual`, `net`,
   `wifi` (prompts for SSID and password on stdin, never on the command
   line or in shell history), `wificlr`, `event IN_S DUR_S` (fake meeting, for
