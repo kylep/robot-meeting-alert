@@ -1,9 +1,13 @@
 // Robot Meeting Alert, project 3: the finished product. Reads the Mac's
-// calendar and tells the robot (over Wi-Fi, or USB) when the next meetings
-// are; the robot keeps time and runs the alerts itself. Manual mode keeps
+// calendar (or, in project 3b, the PC's Outlook) and tells the robot (over
+// Wi-Fi, or USB) when the next meetings are; the robot keeps time and runs
+// the alerts itself. Manual mode keeps
 // project 2's light and sound controls.
 // Based on Dear ImGui's example_sdl3_sdlrenderer3.
 #include <SDL3/SDL.h>
+#ifdef _WIN32
+#include <SDL3/SDL_main.h>  // supplies WinMain for a windowed app
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -11,15 +15,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <memory>
 #include <set>
 #include <sstream>
 #include <string>
-#include <sys/stat.h>
 
-#include "calendar.hpp"
+#include "calendar_provider.hpp"
 #include "discovery.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -40,7 +44,7 @@ const char* kMeterModes[] = {"None", "Brightness", "Volume", "Both"};
 const char* kNet[] = {"no Wi-Fi settings", "joining Wi-Fi...", "on Wi-Fi", "can't join Wi-Fi"};
 // In rma3::Look order.
 const char* kLookNames[] = {"No calendar", "Free", "Meeting soon", "Meeting starting", "In a meeting"};
-const char* kLookHints[] = {"Before this Mac sends a calendar, or 15 min after it goes quiet.",
+const char* kLookHints[] = {"Before " RMA_THIS_COMPUTER " sends a calendar, or 15 min after it goes quiet.",
                             "No meeting in the next 5 minutes.", "A meeting starts within 5 minutes (breathes).",
                             "The first 10 seconds of a meeting.", "For the rest of a meeting."};
 
@@ -70,10 +74,14 @@ double wall_now() {
 std::string clock_time(double t) {
   time_t tt = static_cast<time_t>(t);
   tm local{};
+#ifdef _WIN32
+  localtime_s(&local, &tt);
+#else
   localtime_r(&tt, &local);
+#endif
   char buf[32];
-  strftime(buf, sizeof buf, "%-I:%M %p", &local);
-  return buf;
+  strftime(buf, sizeof buf, "%I:%M %p", &local);  // "%-I" isn't portable
+  return buf[0] == '0' ? buf + 1 : buf;
 }
 
 std::string in_words(double secs) {
@@ -85,15 +93,13 @@ std::string in_words(double secs) {
 
 // ------------------------------------------------------------ settings file
 
-// ~/Library/Application Support/RobotMeetingAlert/project3.ini, key=value.
-// Holds choices only (calendar ids, mode, colours); no passwords.
+// ~/Library/Application Support/RobotMeetingAlert/project3.ini (Windows:
+// %APPDATA%\RobotMeetingAlert\project3.ini), key=value. Holds choices only
+// (calendar ids, mode, colours); no passwords or links.
 struct Prefs {
   std::map<std::string, std::string> kv;
 
-  static std::string path() {
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/Library/Application Support/RobotMeetingAlert/project3.ini";
-  }
+  static std::filesystem::path path() { return rma::app_data_dir() / "project3.ini"; }
   void load() {
     std::ifstream f(path());
     std::string line;
@@ -103,8 +109,8 @@ struct Prefs {
     }
   }
   void save() const {
-    std::string dir = path().substr(0, path().rfind('/'));
-    mkdir(dir.c_str(), 0755);
+    std::error_code ec;
+    std::filesystem::create_directories(rma::app_data_dir(), ec);
     std::ofstream f(path());
     for (const auto& [k, v] : kv) f << k << "=" << v << "\n";
   }
@@ -175,7 +181,7 @@ ImU32 Vivid(const rma3::LookColour& c) {
 
 // What the robot's light means right now, as reported in the state line.
 void StageLine(const rma3::State& s, const rma3::Config& cfg) {
-  const char* text[] = {"no calendar from this Mac yet", "free", "a meeting starts soon", "in a meeting"};
+  const char* text[] = {"no calendar from " RMA_THIS_COMPUTER " yet", "free", "a meeting starts soon", "in a meeting"};
   const rma3::Look look[] = {rma3::kLookWaiting, rma3::kLookFree, rma3::kLookSoon, rma3::kLookMeeting};
   int st = s.stage < 4 ? s.stage : 0;
   const rma3::LookColour& c = cfg.look[look[st]];
@@ -270,6 +276,9 @@ int main(int, char**) {
   }
   int look_sel = rma3::kLookFree;
   char ssid[33] = {}, pass[64] = {};
+  char ics_link[1024] = {};  // the iCal link being typed (Settings)
+  bool show_link = false;
+  std::string link_result;
 
   bool done = false;
   while (!done) {
@@ -338,7 +347,7 @@ int main(int, char**) {
     } else if (snap.not_paired) {
       StatusDot(IM_COL32(240, 180, 60, 255));
       ImGui::TextUnformatted(have_passphrase
-                                 ? "Found the robot, but it didn't accept this Mac's passphrase (see Settings)."
+                                 ? "Found the robot, but it didn't accept " RMA_THIS_COMPUTER "'s passphrase (see Settings)."
                                  : "Found the robot. Type its passphrase in Settings to control it.");
     } else {
       StatusDot(IM_COL32(130, 130, 130, 255));
@@ -372,15 +381,14 @@ int main(int, char**) {
           if (ImGui::Button("Allow calendar access")) cal->request_access();
           break;
         case rma::CalendarProvider::Access::NotBuilt:
-          ImGui::TextWrapped("\"%s\" isn't built yet. Choose \"Mac Calendar app\" in Settings.", cal->name());
+          ImGui::TextWrapped("\"%s\" isn't built yet. Choose \"%s\" in Settings.", cal->name(),
+                             rma::calendar_kind_name(static_cast<rma::CalendarKind>(0)));
           break;
         case rma::CalendarProvider::Access::Requesting:
           ImGui::TextUnformatted("Waiting for permission...");
           break;
         case rma::CalendarProvider::Access::Denied:
-          ImGui::TextWrapped(
-              "Calendar access is off. Turn it on in System Settings > Privacy & Security > Calendars, "
-              "then reopen the app.");
+          ImGui::TextWrapped("%s", cal->denied_help().c_str());
           break;
         case rma::CalendarProvider::Access::Granted: {
           if (calendars.empty()) calendars = cal->calendars();
@@ -422,6 +430,8 @@ int main(int, char**) {
             }
             if (snap.pushed >= 0) ImGui::TextDisabled("Robot knows about %d meeting(s).", snap.pushed);
           }
+          std::string problem = cal->problem();
+          if (!problem.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "%s", problem.c_str());
           break;
         }
       }
@@ -571,11 +581,43 @@ int main(int, char**) {
       ImGui::PushTextWrapPos(0.0f);
       ImGui::TextDisabled("%s", cal->help());
       ImGui::PopTextWrapPos();
+      if (source == static_cast<int>(rma::CalendarKind::kIcsLink)) {
+        // The link is a secret: masked unless Show is ticked, saved only in
+        // the private file next to pairing.key, wiped from memory after.
+        bool have_link = !rma::load_ics_link().empty();
+        ImGui::SetNextItemWidth(360.0f * scale);
+        ImGui::InputTextWithHint("##icslink", have_link ? "saved (paste to change)" : "https://... .ics, or a file path",
+                                 ics_link, sizeof ics_link, show_link ? 0 : ImGuiInputTextFlags_Password);
+        ImGui::SameLine();
+        ImGui::Checkbox("Show##icslink", &show_link);
+        ImGui::BeginDisabled(ics_link[0] == '\0');
+        if (ImGui::Button("Save link")) {
+          link_result = rma::save_ics_link(ics_link) ? "Saved." : "Couldn't save the link.";
+          std::fill(std::begin(ics_link), std::end(ics_link), '\0');
+          show_link = false;
+          cal = rma::make_calendar_provider(rma::CalendarKind::kIcsLink);
+          cal->request_access();
+          calendars.clear();
+          next_fetch = 0;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!have_link);
+        if (ImGui::Button("Forget link")) {
+          link_result = rma::save_ics_link("") ? "Link removed from " RMA_THIS_COMPUTER "." : "Couldn't remove the link.";
+          cal = rma::make_calendar_provider(rma::CalendarKind::kIcsLink);
+          calendars.clear();
+          events.clear();
+          next_fetch = 0;
+        }
+        ImGui::EndDisabled();
+        if (!link_result.empty()) ImGui::TextDisabled("%s", link_result.c_str());
+      }
       Section("ROBOT PASSPHRASE");
       ImGui::PushTextWrapPos(0.0f);
       ImGui::TextDisabled(
-          "Any Mac with this passphrase can control the robot over Wi-Fi. Type the same one on each Mac. "
-          "It never crosses the network. Changing it on the robot needs USB.");
+          "Any " RMA_COMPUTER " with this passphrase can control the robot over Wi-Fi. Type the same one on "
+          "each " RMA_COMPUTER ". It never crosses the network. Changing it on the robot needs USB.");
       ImGui::PopTextWrapPos();
       ImGui::SetNextItemWidth(260.0f * scale);
       ImGui::InputTextWithHint("##pass", have_passphrase ? "saved (type to change)" : "click Generate",
@@ -590,12 +632,12 @@ int main(int, char**) {
       ImGui::PushTextWrapPos(0.0f);
       ImGui::TextDisabled(
           "Use Generate: someone who records your Wi-Fi traffic could try guessing a made-up passphrase "
-          "offline, but not a generated one. Write it down to type on your other Mac.");
+          "offline, but not a generated one. Write it down to type on your other " RMA_COMPUTER ".");
       ImGui::PopTextWrapPos();
       bool usb_now = connected && !snap.over_wifi;
       bool long_enough = std::strlen(passphrase) >= 8;
       ImGui::BeginDisabled(!long_enough);
-      if (ImGui::Button(usb_now ? "Save, and set on robot" : "Save on this Mac")) {
+      if (ImGui::Button(usb_now ? "Save, and set on robot" : "Save on " RMA_THIS_COMPUTER)) {
         uint8_t k[16];
         rma3::passphrase_key(passphrase, k);  // ~0.1 s, deliberately slow
         std::fill(std::begin(passphrase), std::end(passphrase), '\0');
@@ -616,7 +658,7 @@ int main(int, char**) {
       Section("WI-FI SETUP");
       bool usb = connected && !snap.over_wifi;
       ImGui::TextWrapped(usb ? "Type your Wi-Fi details; they are saved on the robot (not in this app)."
-                             : "Plug the robot into this Mac with USB to set up Wi-Fi.");
+                             : "Plug the robot into " RMA_THIS_COMPUTER " with USB to set up Wi-Fi.");
       ImGui::BeginDisabled(!usb);
       ImGui::SetNextItemWidth(220.0f * scale);
       ImGui::InputText("Network name", ssid, sizeof ssid);

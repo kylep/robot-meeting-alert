@@ -6,7 +6,10 @@
 //   kGoogleApi    Sign in with Google and read the Calendar API directly.
 //                 Stub: for a work laptop whose Calendar app can't add the
 //                 Workspace account. See docs/work-calendar.md.
-//   kIcsLink      A calendar's secret iCal link, fetched over HTTPS. Stub.
+//   kIcsLink      A published calendar's iCal (.ics) link, fetched over
+//                 HTTPS, or an .ics file (ics_provider.hpp). Built.
+// The Windows app (../project-3b) has its own list: classic Outlook, then
+// the same iCal link source.
 #pragma once
 
 #include <memory>
@@ -17,8 +20,13 @@
 
 namespace rma {
 
+#ifdef _WIN32
+enum class CalendarKind { kOutlook = 0, kIcsLink = 1 };
+constexpr int kCalendarKinds = 2;
+#else
 enum class CalendarKind { kMacCalendar = 0, kGoogleApi = 1, kIcsLink = 2 };
 constexpr int kCalendarKinds = 3;
+#endif
 
 struct CalendarInfo {
   std::string id;       // the provider's calendar identifier
@@ -36,6 +44,13 @@ class CalendarProvider {
   // One or two sentences for the Settings tab: what this option needs.
   virtual const char* help() const = 0;
   virtual Access access() const = 0;
+  // What to do when access() is Denied.
+  virtual std::string denied_help() const {
+    return "Calendar access is off. Turn it on in System Settings > Privacy & Security > Calendars, "
+           "then reopen the app.";
+  }
+  // A current problem worth showing (e.g. "couldn't download"), or "".
+  virtual std::string problem() const { return {}; }
   virtual void request_access() = 0;  // e.g. the macOS prompt, or a sign-in
   virtual std::vector<CalendarInfo> calendars() = 0;
   // Events overlapping [from, to) in the chosen calendars (seconds since 1970).

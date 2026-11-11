@@ -10,6 +10,31 @@
 #include <cmath>
 #include <vector>
 
+#ifdef _WIN32
+// Windows has no arc4random: the same two calls on the system RNG.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <bcrypt.h>
+
+namespace {
+void arc4random_buf(void* buf, size_t n) {
+  if (BCryptGenRandom(nullptr, static_cast<PUCHAR>(buf), static_cast<ULONG>(n), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+    std::abort();  // never fall back to predictable nonces or passphrases
+  }
+}
+uint32_t arc4random_uniform(uint32_t n) {
+  uint32_t limit = UINT32_MAX - UINT32_MAX % n, v;  // reject the biased tail
+  do arc4random_buf(&v, sizeof v); while (v >= limit);
+  return v % n;
+}
+}  // namespace
+#endif
+
 namespace rma3 {
 namespace {
 

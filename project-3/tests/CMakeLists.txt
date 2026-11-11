@@ -11,6 +11,7 @@ add_library(rma3_shared STATIC
   ${ROOT}/shared/rma3/auth.cpp
   ${ROOT}/shared/rma3/device.cpp
   ${ROOT}/shared/rma3/host.cpp
+  ${ROOT}/shared/rma3/ics.cpp
   ${ROOT}/shared/rma3/knob.cpp
   ${ROOT}/shared/rma3/melodies.cpp
   ${ROOT}/shared/rma3/schedule.cpp
@@ -27,6 +28,10 @@ add_test(NAME test_v3 COMMAND test_v3)
 add_executable(test_device test_device.cpp)
 target_link_libraries(test_device rma3_shared)
 add_test(NAME test_device COMMAND test_device)
+
+add_executable(test_ics test_ics.cpp)
+target_link_libraries(test_ics rma3_shared)
+add_test(NAME test_ics COMMAND test_ics)
 
 add_executable(test_link test_link.cpp ${ROOT}/mac/src/serial_port.cpp ${ROOT}/mac/src/link.cpp)
 target_include_directories(test_link PRIVATE ${ROOT}/mac/src)

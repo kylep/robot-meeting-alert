@@ -29,7 +29,10 @@ on the robot, not in the app or this repo.
   melodies and knob, plus Wi-Fi (CYW43 + lwIP), a TCP command port (4242),
   and mDNS (`rma.local`).
 - **Mac app:** Dear ImGui + SDL3 + EventKit (`mac/`): calendar picker, Test
-  alert, manual mode (project 2's controls), Wi-Fi setup.
+  alert, manual mode (project 2's controls), Wi-Fi setup. It can also read a
+  published calendar's iCal (.ics) link instead of the Calendar app.
+- **Windows:** an experimental build of the same app that reads Outlook
+  lives in [project 3b](../project-3b/).
 - **Protocol v3:** project 2's plain-text lines, plus schedule and Wi-Fi
   commands, over USB or Wi-Fi (`shared/rma3/`).
 
@@ -85,9 +88,9 @@ is broken.
 
 ### Switching to the work calendar (on the work laptop)
 
-If the work account can't be added to the Mac's Calendar app, see
-[docs/work-calendar.md](docs/work-calendar.md) for the other options
-(stubbed in the app under Settings → Calendar source, not built yet).
+If the work account can't be added to the Mac's Calendar app, use the
+**iCal link** source (below), or see
+[docs/work-calendar.md](docs/work-calendar.md) for the other options.
 
 
 1. Clone this repo and `make mac` on the work laptop.
@@ -102,6 +105,46 @@ If the work account can't be added to the Mac's Calendar app, see
 The robot must be on a Wi-Fi network the work laptop can reach. If it isn't
 found automatically, type the robot's address (from `rmactl net`) under
 **Wi-Fi setup → Robot address**.
+
+### Work calendar in Outlook (Microsoft 365 or Exchange)
+
+The app reads the Mac's **Calendar app**, not Outlook for Mac. Outlook for
+Mac keeps its own copy of your calendar that other apps can't see, so pick
+one of these:
+
+1. **Add the account to the Mac (best).** System Settings → Internet
+   Accounts → Add Account → Microsoft Exchange, sign in with your work
+   address, and leave **Calendars** switched on. It then shows up in the
+   Calendar app and in this app's calendar list. Some employers block this.
+2. **Use a published iCal link.** In Outlook on the web: Settings →
+   Calendar → Shared calendars → Publish a calendar, choose your calendar
+   and "Can view when I'm busy" (times only is all the robot needs), then
+   Publish and copy the **ICS** link. If "Publish a calendar" is missing, your
+   IT department has turned it off. Then either:
+   - in this app: Settings → Calendar source → **iCal link (.ics)**, paste
+     the link, **Save link**, and tick "Published calendar" on the Robot tab
+     (the app downloads it every 5 minutes); or
+   - subscribe to it in the Calendar app (File → New Calendar Subscription)
+     and tick it here as usual.
+3. **Copy it into a Google calendar.** In Google Calendar on the web, Other
+   calendars → + → From URL, paste the same ICS link. Google refreshes these
+   only every few hours, so a meeting added at the last minute can be missed.
+
+**The iCal link works like a password:** anyone who has it can see your
+calendar. The app keeps it only in
+`~/Library/Application Support/RobotMeetingAlert/ics.link` (readable only by
+you), never in the settings file or this repo. **Forget link** deletes it. To
+cut off a leaked link, unpublish and publish again in Outlook (that makes a
+new link).
+
+What the iCal link source understands, and doesn't: times in any time zone,
+all-day, cancelled and "free" events, and repeats (daily, weekly, monthly,
+yearly, including "every other week" and "last Friday"), with moved or
+cancelled single meetings. Rare repeat rules (for example "the first weekday
+of the month") only count their first meeting; the app says so under the
+calendar list. A meeting you declined is only skipped when the file lists you
+as an attendee (Google's secret link does; Outlook removes declined meetings
+from the calendar anyway).
 
 ## Sounds
 
@@ -185,8 +228,9 @@ Security notes:
 ```
 shared/rma3/  device logic: protocol, schedule + alert stages, Wi-Fi record and
               supervisor, melodies, knob; host helpers incl. the meeting picker
+              and the iCal (.ics) reader
 firmware/     Pico SDK project (PWM, ADC, CYW43 Wi-Fi, lwIP TCP + mDNS, flash)
-mac/          app (EventKit calendar, ImGui), rmactl, USB + TCP link, finder
+mac/          app (EventKit calendar or iCal link, ImGui), rmactl, USB + TCP link, finder
 tests/        host tests (CTest): device logic, plus fake robots on a pty and TCP
 docs/         design
 ```

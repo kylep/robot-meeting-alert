@@ -1,10 +1,11 @@
-// Placeholders for the work-laptop calendar options (docs/work-calendar.md).
-// They show up in Settings so the choice is visible, and say what building
-// them would take; they never return events.
+// The Mac app's calendar sources: EventKit (default), the iCal link source,
+// and a placeholder for Google sign-in (docs/work-calendar.md) that shows up
+// in Settings so the choice is visible and never returns events.
 #include <memory>
 
 #include "calendar.hpp"
 #include "calendar_provider.hpp"
+#include "ics_provider.hpp"
 
 namespace rma {
 namespace {
@@ -30,7 +31,7 @@ class NotBuilt : public CalendarProvider {
 const char* calendar_kind_name(CalendarKind kind) {
   switch (kind) {
     case CalendarKind::kGoogleApi: return "Google sign-in (not built yet)";
-    case CalendarKind::kIcsLink: return "Secret iCal link (not built yet)";
+    case CalendarKind::kIcsLink: return "iCal link (.ics)";
     default: return "Mac Calendar app";
   }
 }
@@ -48,14 +49,7 @@ std::unique_ptr<CalendarProvider> make_calendar_provider(CalendarKind kind) {
           "can't add your work account. Needs a Google Cloud OAuth client, and your Workspace admin may need "
           "to allow the app.");
     case CalendarKind::kIcsLink:
-      // TODO(work laptop): HTTPS GET of the secret address, parse VEVENTs
-      // (DTSTART/DTEND/TZID, RRULE/EXDATE/RECURRENCE-ID, STATUS, TRANSP),
-      // keep the URL in the Keychain (it is a password in disguise).
-      return std::make_unique<NotBuilt>(
-          calendar_kind_name(kind),
-          "Reads the calendar's \"secret address in iCal format\" from Google Calendar settings. Many "
-          "Workspace admins turn that address off. The link works like a password, so it would be kept in "
-          "the Keychain, never in the settings file.");
+      return std::make_unique<IcsProvider>();
     default:
       return std::make_unique<CalendarSource>();
   }

@@ -14,8 +14,18 @@
 // `col` sets the light for a calendar status (waiting, free, soon, start,
 // meeting); `none` leaves the light as it was. `cfg` shows these settings.
 // Exit: 0 ok, 1 device error/timeout, 2 no device, 3 port busy, 64 usage.
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <termios.h>
 #include <unistd.h>
+#endif
 
 #include <chrono>
 #include <cstdio>
@@ -76,6 +86,20 @@ bool is_num(const std::string& s, size_t digits = 3) {
 // Reads a line from the terminal, optionally without echo (passwords).
 std::string prompt(const char* label, bool hidden) {
   std::fprintf(stderr, "%s", label);
+#ifdef _WIN32
+  HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
+  DWORD old = 0;
+  bool tty = GetConsoleMode(in, &old) != 0;
+  if (hidden && tty) SetConsoleMode(in, old & ~static_cast<DWORD>(ENABLE_ECHO_INPUT));
+  std::string line;
+  std::getline(std::cin, line);
+  if (!line.empty() && line.back() == '\r') line.pop_back();
+  if (hidden && tty) {
+    SetConsoleMode(in, old);
+    std::fprintf(stderr, "\n");
+  }
+  return line;
+#else
   termios old{};
   bool tty = isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &old) == 0;
   if (hidden && tty) {
@@ -90,6 +114,7 @@ std::string prompt(const char* label, bool hidden) {
     std::fprintf(stderr, "\n");
   }
   return line;
+#endif
 }
 
 }  // namespace
@@ -146,7 +171,7 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "rmactl: cannot write %s\n", rma::pairing_key_path().c_str());
       return 1;
     }
-    std::printf("saved on this Mac\n");
+    std::printf("saved on " RMA_THIS_COMPUTER "\n");
     if (!host.empty() || (port_path.empty() && rma::find_pico_ports().empty())) {
       std::printf("robot not on USB: its passphrase is unchanged (plug it in and run rmactl pair to set it)\n");
       return 0;
@@ -203,13 +228,13 @@ int main(int argc, char** argv) {
     // Handshake: the robot proves it holds this Mac's key, then we do.
     uint8_t key[16];
     if (!rma::load_pairing_key(key)) {
-      std::fprintf(stderr, "rmactl: no robot passphrase on this Mac yet; run: rmactl pair\n");
+      std::fprintf(stderr, "rmactl: no robot passphrase on " RMA_THIS_COMPUTER " yet; run: rmactl pair\n");
       return 1;
     }
     std::string reply_hi, auth, answer;
     if (send_command(port, g_session.hello(), &reply_hi) != 0 || !g_session.answer(key, reply_hi, &auth) ||
         send_command(port, auth, &answer) != 0) {
-      std::fprintf(stderr, "rmactl: the robot at %s didn't accept this Mac's passphrase (rmactl pair)\n",
+      std::fprintf(stderr, "rmactl: the robot at %s didn't accept " RMA_THIS_COMPUTER "'s passphrase (rmactl pair)\n",
                    host.c_str());
       return 1;
     }

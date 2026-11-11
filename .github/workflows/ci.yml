@@ -51,3 +51,45 @@ jobs:
         with:
           name: ${{ matrix.project }}-firmware
           path: ${{ matrix.project }}/build/firmware/*.uf2
+
+  # Project 3b: the Windows app (experimental). Built with MSVC on real
+  # Windows, which also runs the host tests that need no pty; the .exe files
+  # are kept as an artifact.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: project-3b
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A x64
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: project-3b-windows
+          path: |
+            project-3b/build/Release/RobotMeetingAlert.exe
+            project-3b/build/Release/rmactl.exe
+
+  # The same app cross-compiled with mingw-w64, as the README describes for
+  # building from a Mac or Linux.
+  windows-cross:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: project-3b
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build mingw-w64
+      - name: Build
+        run: |
+          cmake -S . -B build/win -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake
+          cmake --build build/win
