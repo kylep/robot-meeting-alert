@@ -578,6 +578,8 @@ class Expander {
         std::sort(months.begin(), months.end());
         for (int m : months) month_days(r, y, m, md0, &days);
       }
+      // Charge for the work done, so long BYDAY/BYMONTHDAY lists can't stretch the budget.
+      budget_ -= static_cast<i64>(days.size() + r.byday.size() + r.bymonthday.size() + r.bymonth.size());
       if (period_start > last_day) return true;
       std::sort(days.begin(), days.end());
       for (i64 day : days) {
@@ -610,6 +612,7 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
   IcsResult res;
   Zones zones;
   std::vector<Raw> raws;
+  size_t masters = 0;
   std::vector<std::string> stack;
   std::string zone_id;
   Zone zone;
@@ -636,8 +639,14 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
       if (stack.empty() || stack.back() != what) continue;  // unbalanced: ignore
       stack.pop_back();
       if (what == "VEVENT" && ev.start.valid) {
-        if (raws.size() < kMaxEvents) raws.push_back(ev);
-        else ++res.unsupported;
+        // Overrides (moved or cancelled single meetings) are cheap and always kept;
+        // only repeating masters and plain events count toward the cap.
+        if (ev.recur_id.valid || masters < kMaxEvents) {
+          raws.push_back(ev);
+          if (!ev.recur_id.valid) ++masters;
+        } else {
+          ++res.unsupported;
+        }
       }
       if (what == "VTIMEZONE" && !zone_id.empty()) zones.by_id[zone_id] = zone;
       if ((what == "STANDARD" || what == "DAYLIGHT") && !stack.empty() && stack.back() == "VTIMEZONE" &&

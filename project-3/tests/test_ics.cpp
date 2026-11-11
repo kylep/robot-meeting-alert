@@ -194,21 +194,34 @@ void test_line_endings_and_alarms() {
 }
 
 void test_hostile_feed_is_bounded() {
-  // 6000 events, each a COUNT rule from 1900 (no jump-ahead), plus one normal
-  // meeting first. The parse must stay fast and keep the normal meeting.
+  // Kept (before the cap): a normal meeting, a two-day series, and one rule
+  // with a 2000-entry BYDAY list that must be charged for its work. Then 6000
+  // COUNT rules from 1900 (no jump-ahead) that blow the cap, and after them a
+  // cancelled override of the series' first day.
   std::string text =
-      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:ok\nDTSTART:20261111T100000Z\nDTEND:20261111T110000Z\nEND:VEVENT\n";
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:ok\nDTSTART:20261111T100000Z\nDTEND:20261111T110000Z\nEND:VEVENT\n"
+      "BEGIN:VEVENT\nUID:twin\nDTSTART:20261111T120000Z\nDTEND:20261111T130000Z\nRRULE:FREQ=DAILY;COUNT=2\nEND:VEVENT\n";
+  std::string byday = "MO";
+  for (int i = 0; i < 2000; ++i) byday += ",MO";
+  text += "BEGIN:VEVENT\nUID:long\nDTSTART:19000101T090000Z\nDTEND:19000101T100000Z\nRRULE:FREQ=WEEKLY;COUNT=999999999;BYDAY=" +
+          byday + "\nEND:VEVENT\n";
   for (int i = 0; i < 6000; ++i) {
     text += "BEGIN:VEVENT\nUID:h" + std::to_string(i) +
             "\nDTSTART:19000101T090000Z\nDTEND:19000101T100000Z\nRRULE:FREQ=DAILY;COUNT=999999999\nEND:VEVENT\n";
   }
-  text += "END:VCALENDAR\n";
+  text += "BEGIN:VEVENT\nUID:twin\nRECURRENCE-ID:20261111T120000Z\nDTSTART:20261111T120000Z\n"
+          "DTEND:20261111T130000Z\nSTATUS:CANCELLED\nEND:VEVENT\nEND:VCALENDAR\n";
   auto t0 = std::chrono::steady_clock::now();
-  auto r = rma3::parse_ics(text, utc(2026, 11, 11), utc(2026, 11, 12));
+  auto r = rma3::parse_ics(text, utc(2026, 11, 11), utc(2026, 11, 13));
   double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   CHECK(secs < 5.0);
   CHECK(r.unsupported > 0);
-  CHECK(std::any_of(r.events.begin(), r.events.end(), [](const auto& e) { return e.start == utc(2026, 11, 11, 10); }));
+  auto has = [&](double t) {
+    return std::any_of(r.events.begin(), r.events.end(), [&](const auto& e) { return e.start == t && !e.cancelled; });
+  };
+  CHECK(has(utc(2026, 11, 11, 10)));   // the normal meeting
+  CHECK(!has(utc(2026, 11, 11, 12)));  // cancelled by the override after the cap
+  CHECK(has(utc(2026, 11, 12, 12)));   // the series' second day is untouched
 }
 
 }  // namespace
