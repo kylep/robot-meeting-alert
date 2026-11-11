@@ -10,6 +10,13 @@ step, made to teach electronics and programming to young kids along the way.
 | [Project 2](project-2/) | One RGB LED (any colour, any brightness), a buzzer that plays melodies, and a knob that can set brightness and/or volume | Built and tested in software; wiring and hardware test next |
 | [Project 3](project-3/) | The finished product: same board, now on Wi-Fi from a phone charger; the Mac app reads your calendar and the robot glows green / amber / red and plays a melody when a meeting starts | Built and tested in software (2026-11-01); flashing and hardware test next |
 
+## The finished board
+
+Projects 2 and 3 use this wiring. Every wire end is labelled with its hole;
+the [wiring page](project-3/docs/wiring.md) lists each wire and what it's for.
+
+![The finished board: Pico 2 W, knob, RGB LED and buzzer, with every wire's holes labelled](project-3/docs/wiring.png)
+
 Shared docs:
 - [Kit inventory](docs/inventory.md): what's in the FNK0064E box
 - [Wiring diagram](project-3/docs/wiring.md): the finished board (projects 2 and 3), every wire and hole
