@@ -224,6 +224,26 @@ void test_hostile_feed_is_bounded() {
   CHECK(has(utc(2026, 11, 12, 12)));   // the series' second day is untouched
 }
 
+void test_hostile_zone_and_overrides() {
+  // A time zone with 100000 RDATEs, used by 50000 overrides: caps keep it fast.
+  std::string text = "BEGIN:VCALENDAR\nBEGIN:VTIMEZONE\nTZID:Bad\nBEGIN:STANDARD\nDTSTART:19700101T000000\n"
+                     "TZOFFSETFROM:+0000\nTZOFFSETTO:+0000\n";
+  for (int i = 0; i < 100000; ++i) text += "RDATE:19700101T000000\n";
+  text += "END:STANDARD\nEND:VTIMEZONE\n"
+          "BEGIN:VEVENT\nUID:ok\nDTSTART:20261111T100000Z\nDTEND:20261111T110000Z\nEND:VEVENT\n";
+  for (int i = 0; i < 50000; ++i) {
+    text += "BEGIN:VEVENT\nUID:o" + std::to_string(i) +
+            "\nRECURRENCE-ID;TZID=Bad:20200101T090000\nDTSTART;TZID=Bad:20200101T090000\nEND:VEVENT\n";
+  }
+  text += "END:VCALENDAR\n";
+  auto t0 = std::chrono::steady_clock::now();
+  auto r = rma3::parse_ics(text, utc(2026, 11, 11), utc(2026, 11, 12));
+  double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+  CHECK(secs < 5.0);
+  CHECK(r.unsupported > 0);
+  CHECK((starts(r) == std::vector<double>{utc(2026, 11, 11, 10)}));
+}
+
 }  // namespace
 
 int main() {
@@ -236,6 +256,7 @@ int main() {
   test_flags();
   test_line_endings_and_alarms();
   test_hostile_feed_is_bounded();
+  test_hostile_zone_and_overrides();
   if (g_failures == 0) std::printf("test_ics: all passed\n");
   return g_failures == 0 ? 0 : 1;
 }

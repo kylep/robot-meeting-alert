@@ -272,20 +272,20 @@ int zone_offset(const Zone& z, i64 t) {
   i64 best = LLONG_MIN, earliest = LLONG_MAX;
   int off = 0, earliest_from = 0;
   for (const Observance& o : z.obs) {
-    std::vector<i64> starts = o.rdates;
-    if (o.yearly) {
-      for (int yy : {y - 1, y}) {
-        i64 s;
-        if (onset(o, yy, &s)) starts.push_back(s);
-      }
-    } else {
-      starts.push_back(o.start.wall);
-    }
-    for (i64 s : starts) {
+    auto consider = [&](i64 s) {
       if (s <= t && s > best) {
         best = s;
         off = o.off_to;
       }
+    };
+    for (i64 s : o.rdates) consider(s);
+    if (o.yearly) {
+      for (int yy : {y - 1, y}) {
+        i64 s;
+        if (onset(o, yy, &s)) consider(s);
+      }
+    } else {
+      consider(o.start.wall);
     }
     if (o.start.wall < earliest) {
       earliest = o.start.wall;
@@ -403,6 +403,9 @@ Rule parse_rule(const std::string& v, const std::string& tz) {
 // Limits for untrusted feeds: repeat periods expanded per file, and events kept.
 constexpr i64 kExpandBudget = 300000;
 constexpr size_t kMaxEvents = 5000;
+constexpr size_t kMaxOverrides = 20000;  // moved/cancelled single meetings
+constexpr size_t kMaxZoneParts = 64;     // observances per time zone
+constexpr size_t kMaxZoneDates = 400;    // RDATEs per observance
 
 struct Raw {
   std::string uid;
@@ -443,7 +446,9 @@ void add_observance_prop(Observance* o, const Prop& p) {
   } else if (p.name == "TZOFFSETTO") {
     parse_offset(p.value, &o->off_to);
   } else if (p.name == "RDATE") {
-    for (const Dt& d : prop_dts(p)) o->rdates.push_back(d.wall);
+    for (const Dt& d : prop_dts(p)) {
+      if (o->rdates.size() < kMaxZoneDates) o->rdates.push_back(d.wall);
+    }
   } else if (p.name == "RRULE") {
     Rule r = parse_rule(p.value, "");
     if (r.freq != "YEARLY") return;
@@ -508,6 +513,8 @@ class Expander {
   template <typename Emit>
   bool expand(const Raw& e, Emit emit) {
     emit(e.start.wall);
+    budget_ -= static_cast<i64>(e.rdates.size());
+    if (budget_ < 0) return false;
     for (const Dt& rd : e.rdates) {
       Dt x = rd;
       if (x.tz.empty() && !x.utc) x.tz = e.start.tz;
@@ -612,7 +619,7 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
   IcsResult res;
   Zones zones;
   std::vector<Raw> raws;
-  size_t masters = 0;
+  size_t masters = 0, overrides = 0;
   std::vector<std::string> stack;
   std::string zone_id;
   Zone zone;
@@ -639,11 +646,11 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
       if (stack.empty() || stack.back() != what) continue;  // unbalanced: ignore
       stack.pop_back();
       if (what == "VEVENT" && ev.start.valid) {
-        // Overrides (moved or cancelled single meetings) are cheap and always kept;
-        // only repeating masters and plain events count toward the cap.
-        if (ev.recur_id.valid || masters < kMaxEvents) {
+        // Overrides get their own (larger) cap, so a flood of them after the
+        // masters can't push out the cancellations that matter.
+        if (ev.recur_id.valid ? overrides < kMaxOverrides : masters < kMaxEvents) {
           raws.push_back(ev);
-          if (!ev.recur_id.valid) ++masters;
+          ++(ev.recur_id.valid ? overrides : masters);
         } else {
           ++res.unsupported;
         }
@@ -651,7 +658,7 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
       if (what == "VTIMEZONE" && !zone_id.empty()) zones.by_id[zone_id] = zone;
       if ((what == "STANDARD" || what == "DAYLIGHT") && !stack.empty() && stack.back() == "VTIMEZONE" &&
           obs.start.valid) {
-        zone.obs.push_back(obs);
+        if (zone.obs.size() < kMaxZoneParts) zone.obs.push_back(obs);
       }
       continue;
     }
