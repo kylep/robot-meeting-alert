@@ -12,6 +12,7 @@ step, made to teach electronics and programming to young kids along the way.
 
 Shared docs:
 - [Kit inventory](docs/inventory.md): what's in the FNK0064E box
+- [Wiring diagram](project-3/docs/wiring.md): the finished board (projects 2 and 3), every wire and hole
 
 Each project folder has its own README, assembly guide, design doc, firmware,
 Mac app and tests.
