@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <chrono>
 // iCalendar reader: time zones, repeats, exceptions and the skip rules.
 #include <string>
 #include <vector>
@@ -191,6 +193,24 @@ void test_line_endings_and_alarms() {
   if (!r.events.empty()) CHECK(r.events[0].end == utc(2026, 11, 11, 11));
 }
 
+void test_hostile_feed_is_bounded() {
+  // 6000 events, each a COUNT rule from 1900 (no jump-ahead), plus one normal
+  // meeting first. The parse must stay fast and keep the normal meeting.
+  std::string text =
+      "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:ok\nDTSTART:20261111T100000Z\nDTEND:20261111T110000Z\nEND:VEVENT\n";
+  for (int i = 0; i < 6000; ++i) {
+    text += "BEGIN:VEVENT\nUID:h" + std::to_string(i) +
+            "\nDTSTART:19000101T090000Z\nDTEND:19000101T100000Z\nRRULE:FREQ=DAILY;COUNT=999999999\nEND:VEVENT\n";
+  }
+  text += "END:VCALENDAR\n";
+  auto t0 = std::chrono::steady_clock::now();
+  auto r = rma3::parse_ics(text, utc(2026, 11, 11), utc(2026, 11, 12));
+  double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+  CHECK(secs < 5.0);
+  CHECK(r.unsupported > 0);
+  CHECK(std::any_of(r.events.begin(), r.events.end(), [](const auto& e) { return e.start == utc(2026, 11, 11, 10); }));
+}
+
 }  // namespace
 
 int main() {
@@ -202,6 +222,7 @@ int main() {
   test_exceptions();
   test_flags();
   test_line_endings_and_alarms();
+  test_hostile_feed_is_bounded();
   if (g_failures == 0) std::printf("test_ics: all passed\n");
   return g_failures == 0 ? 0 : 1;
 }

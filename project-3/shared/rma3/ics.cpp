@@ -400,6 +400,10 @@ Rule parse_rule(const std::string& v, const std::string& tz) {
   return r;
 }
 
+// Limits for untrusted feeds: repeat periods expanded per file, and events kept.
+constexpr i64 kExpandBudget = 300000;
+constexpr size_t kMaxEvents = 5000;
+
 struct Raw {
   std::string uid;
   Dt start, end, recur_id;
@@ -536,7 +540,10 @@ class Expander {
       }
     }
     int seen = 1;  // DTSTART is always the first occurrence
-    for (int guard = 0; guard < 200000; ++guard, ++k) {
+    // One budget shared by every event in the file, so a hostile or huge feed
+    // can't stall the app: once it runs out, the rest count as unsupported.
+    for (;; ++k) {
+      if (--budget_ < 0) return false;
       std::vector<i64> days;
       i64 period_start = 0;
       if (r.freq == "DAILY") {
@@ -594,6 +601,7 @@ class Expander {
 
   const Zones& zones_;
   double from_, to_;
+  i64 budget_ = kExpandBudget;
 };
 
 }  // namespace
@@ -627,7 +635,10 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
       std::string what = upper(p.value);
       if (stack.empty() || stack.back() != what) continue;  // unbalanced: ignore
       stack.pop_back();
-      if (what == "VEVENT" && ev.start.valid) raws.push_back(ev);
+      if (what == "VEVENT" && ev.start.valid) {
+        if (raws.size() < kMaxEvents) raws.push_back(ev);
+        else ++res.unsupported;
+      }
       if (what == "VTIMEZONE" && !zone_id.empty()) zones.by_id[zone_id] = zone;
       if ((what == "STANDARD" || what == "DAYLIGHT") && !stack.empty() && stack.back() == "VTIMEZONE" &&
           obs.start.valid) {

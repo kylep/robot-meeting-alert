@@ -32,7 +32,7 @@ struct IcsResult {
   bool ok = false;           // false: not an iCalendar file at all
   std::string name;          // X-WR-CALNAME, if any (shown in the picker only)
   std::vector<CalEvent> events;  // occurrences overlapping [from, to)
-  int unsupported = 0;       // repeating events whose rule couldn't be expanded
+  int unsupported = 0;       // repeating events whose rule couldn't be expanded, or past the file's limits
 };
 
 // `from`/`to` are seconds since 1970. `self` is the owner's email address
