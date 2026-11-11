@@ -404,8 +404,10 @@ Rule parse_rule(const std::string& v, const std::string& tz) {
 constexpr i64 kExpandBudget = 300000;
 constexpr size_t kMaxEvents = 5000;
 constexpr size_t kMaxOverrides = 20000;  // moved/cancelled single meetings
-constexpr size_t kMaxZoneParts = 64;     // observances per time zone
-constexpr size_t kMaxZoneDates = 400;    // RDATEs per observance
+constexpr size_t kMaxZoneParts = 16;     // observances per time zone
+constexpr size_t kMaxZoneDates = 400;    // RDATEs per time zone, all observances together
+constexpr size_t kMaxEventDates = 400;   // EXDATEs, and RDATEs, per event
+constexpr size_t kMaxExdates = 20000;    // EXDATEs in the whole file
 
 struct Raw {
   std::string uid;
@@ -425,8 +427,16 @@ void add_event_prop(Raw* e, const Prop& p) {
   else if (n == "DURATION") e->duration = parse_duration(upper(p.value));
   else if (n == "RECURRENCE-ID") e->recur_id = prop_dt(p);
   else if (n == "RRULE") e->rrule = p.value;
-  else if (n == "EXDATE") for (const Dt& d : prop_dts(p)) e->exdates.push_back(d);
-  else if (n == "RDATE") for (const Dt& d : prop_dts(p)) e->rdates.push_back(d);
+  else if (n == "EXDATE") {
+    for (const Dt& d : prop_dts(p)) {
+      if (e->exdates.size() < kMaxEventDates) e->exdates.push_back(d);
+    }
+  }
+  else if (n == "RDATE") {
+    for (const Dt& d : prop_dts(p)) {
+      if (e->rdates.size() < kMaxEventDates) e->rdates.push_back(d);
+    }
+  }
   else if (n == "STATUS") e->cancelled = upper(p.value) == "CANCELLED";
   else if (n == "TRANSP") e->free = e->free || upper(p.value) == "TRANSPARENT";
   else if (n == "X-MICROSOFT-CDO-BUSYSTATUS") e->free = e->free || upper(p.value) == "FREE";
@@ -658,7 +668,12 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
       if (what == "VTIMEZONE" && !zone_id.empty()) zones.by_id[zone_id] = zone;
       if ((what == "STANDARD" || what == "DAYLIGHT") && !stack.empty() && stack.back() == "VTIMEZONE" &&
           obs.start.valid) {
-        if (zone.obs.size() < kMaxZoneParts) zone.obs.push_back(obs);
+        if (zone.obs.size() < kMaxZoneParts) {
+          size_t used = 0;
+          for (const Observance& o : zone.obs) used += o.rdates.size();
+          obs.rdates.resize(std::min(obs.rdates.size(), kMaxZoneDates - std::min(used, kMaxZoneDates)));
+          zone.obs.push_back(obs);
+        }
       }
       continue;
     }
@@ -681,6 +696,7 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
   }
 
   Expander expander(zones, from, to);
+  size_t exdates_seen = 0;
   for (const Raw& e : raws) {
     i64 start_utc = zones.to_utc(e.start);
     i64 dur = 0;
@@ -707,6 +723,10 @@ IcsResult parse_ics(std::string_view text, double from, double to, const std::st
     }
     std::set<i64> ex_utc, ex_days;
     for (const Dt& x : e.exdates) {
+      if (++exdates_seen > kMaxExdates) {  // past the file's limit: report, stop
+        ++res.unsupported;
+        break;
+      }
       if (x.date) {
         ex_days.insert(floor_div(x.wall, kDay));
       } else {
